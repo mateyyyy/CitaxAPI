@@ -1,0 +1,7 @@
+Loaded Prisma config from prisma.config.ts.
+
+Prisma schema loaded from prisma\schema.prisma.
+Datasource "db": MySQL database "turnos_sistema" at "gateway01.us-east-1.prod.aws.tidbcloud.com:4000"
+
+Your database is now in sync with your Prisma schema. Done in 4.16s
+

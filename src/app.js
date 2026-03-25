@@ -6,6 +6,7 @@ const availabilityRoutes = require('./routes/availability.routes');
 const configRoutes = require('./routes/config.routes');
 const servicesRoutes = require('./routes/services.routes');
 const professionalsRoutes = require('./routes/professionals.routes');
+const whatsappRoutes = require('./routes/whatsapp.routes');
 
 const app = express();
 
@@ -22,6 +23,7 @@ app.use('/api/availability', availabilityRoutes);
 app.use('/api/config', configRoutes);
 app.use('/api/services', servicesRoutes);
 app.use('/api/professionals', professionalsRoutes);
+app.use('/api/whatsapp', whatsappRoutes);
 
 // Error handler
 app.use((err, req, res, next) => {

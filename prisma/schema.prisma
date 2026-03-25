@@ -4,6 +4,7 @@ generator client {
 
 datasource db {
   provider = "mysql"
+  url      = env("DATABASE_URL")
 }
 
 model CLIENTE {
@@ -22,8 +23,9 @@ model CONFIG_WHATSAPP {
   id_whatsapp   Int      @id @default(autoincrement())
   id_empresa    Int      @unique(map: "id_empresa")
   instance_name String   @db.VarChar(255)
-  apikey        String   @db.VarChar(255)
-  conectado     Boolean? @default(false)
+  apikey          String?  @db.VarChar(255)
+  conectado       Boolean? @default(false)
+  whatsapp_number String?  @db.VarChar(50)
   EMPRESA       EMPRESA  @relation(fields: [id_empresa], references: [id_empresa], onDelete: Cascade, onUpdate: NoAction, map: "fk_configwp_empresa")
 }
 
