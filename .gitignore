@@ -1,0 +1,4 @@
+.env
+/generated/prisma
+test_prisma.js
+update_db.js
