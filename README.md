@@ -46,4 +46,4 @@ Nueva API del sistema Citax, a construir desde cero.
 - `POST /whatsapp/blacklist` — agregar a lista negra
 - `DELETE /whatsapp/blacklist/:phone` — quitar de lista negra
 
-## Citax API
+## Citax API --
