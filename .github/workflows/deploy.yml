@@ -40,6 +40,7 @@ jobs:
             docker run -d \
               --name citax-backend \
               --restart unless-stopped \
+              --network citax-network \
               -p 3000:3000 \
               --env-file /home/ec2-user/citax.env \
               ghcr.io/${{ github.repository_owner }}/citax-backend:latest
