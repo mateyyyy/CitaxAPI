@@ -10,7 +10,19 @@ const whatsappRoutes = require('./routes/whatsapp.routes');
 
 const app = express();
 
-app.use(cors());
+const corsOptions = {
+    origin: [
+        'https://www.citax.com.ar',
+        'https://citax.com.ar',
+        'http://localhost:5173',
+        'http://localhost:3000'
+    ],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true
+};
+
+app.use(cors(corsOptions));
 app.use(express.json());
 
 // Health check
