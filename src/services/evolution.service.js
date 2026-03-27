@@ -140,11 +140,160 @@ const disconnectInstance = async (instanceName) => {
   }
 };
 
+// ─── Send text message via Evolution API ──────────────────────────────
+const sendTextMessage = async (phoneNumber, text, instanceName) => {
+  const normalizedInstanceName = normalizeInstanceName(instanceName);
+  const number = String(phoneNumber).replace(/[^\d]/g, "");
+  const response = await evolutionClient.post(
+    `/message/sendText/${normalizedInstanceName}`,
+    {
+      number,
+      text,
+    }
+  );
+  return response.data;
+};
+
+// ─── Extract messages from webhook payload ────────────────────────────
+const extractIncomingMessages = (webhookData) => {
+  if (!webhookData) return [];
+  const event = webhookData.event || webhookData.type || "";
+  if (event !== "messages.upsert") return [];
+  const data = webhookData.data || webhookData;
+  if (Array.isArray(data)) return data;
+  if (data.key || data.message) return [data];
+  return [];
+};
+
+// ─── Normalize an incoming message ────────────────────────────────────
+const normalizeIncomingMessage = (instanceName, raw, webhookData) => {
+  const key = raw?.key || {};
+  const msg = raw?.message || {};
+  const fromMe = key.fromMe === true;
+  const isGroup = String(key.remoteJid || "").endsWith("@g.us");
+  const phoneNumber = String(key.remoteJid || "")
+    .split("@")[0]
+    .split(":")[0]
+    .replace(/[^\d]/g, "")
+    .trim();
+
+  const text =
+    msg.conversation ||
+    msg.extendedTextMessage?.text ||
+    msg.imageMessage?.caption ||
+    msg.videoMessage?.caption ||
+    "";
+
+  return {
+    instanceName,
+    messageId: key.id || null,
+    phoneNumber,
+    pushName: raw.pushName || "",
+    text,
+    fromMe,
+    isGroup,
+    timestamp: raw.messageTimestamp || Date.now(),
+    raw,
+  };
+};
+
+// ─── In-memory recent messages store (for frontend) ───────────────────
+const recentMessagesStore = new Map();
+const MAX_RECENT = 100;
+
+const storeRecentMessage = (instanceName, normalized) => {
+  const key = normalizeInstanceName(instanceName);
+  if (!recentMessagesStore.has(key)) recentMessagesStore.set(key, []);
+  const list = recentMessagesStore.get(key);
+  list.push({
+    id: normalized.messageId,
+    from: normalized.phoneNumber,
+    pushName: normalized.pushName,
+    text: normalized.text,
+    fromMe: normalized.fromMe,
+    isGroup: normalized.isGroup,
+    timestamp: normalized.timestamp,
+  });
+  if (list.length > MAX_RECENT) list.splice(0, list.length - MAX_RECENT);
+};
+
+const getRecentMessages = (instanceName) => {
+  return recentMessagesStore.get(normalizeInstanceName(instanceName)) || [];
+};
+
+// ─── Process incoming messages (AI pipeline) ──────────────────────────
+const processIncomingMessage = async ({ instanceName, webhookData }) => {
+  const messages = extractIncomingMessages(webhookData);
+
+  if (!messages.length) {
+    console.log("📡 Evento de WhatsApp recibido (sin mensajes):", {
+      instanceName,
+      event: webhookData?.event || webhookData?.type || "unknown",
+    });
+    return;
+  }
+
+  // Lazy-load AI to avoid circular deps at startup
+  const { runWhatsappAssistant } = require("./ai/geminiService");
+
+  for (const message of messages) {
+    const normalized = normalizeIncomingMessage(instanceName, message, webhookData);
+    storeRecentMessage(instanceName, normalized);
+
+    console.log("📩 Mensaje entrante:", {
+      instanceName,
+      from: normalized.phoneNumber,
+      pushName: normalized.pushName,
+      text: String(normalized.text || "").slice(0, 100),
+      fromMe: normalized.fromMe,
+      isGroup: normalized.isGroup,
+    });
+
+    // Skip groups, self-messages, or messages without phone
+    if (normalized.isGroup) { console.log("⏭️ Ignorado: es grupo"); continue; }
+    if (normalized.fromMe) { console.log("⏭️ Ignorado: fromMe=true"); continue; }
+    if (!normalized.phoneNumber) { console.log("⏭️ Ignorado: sin teléfono"); continue; }
+
+    // Check connection state
+    const connectionState = await getSafeConnectionState(instanceName);
+    const status = connectionState?.instance?.state || connectionState?.state || "unknown";
+    if (status !== "open") { console.log("⏭️ Ignorado: instancia no abierta, status:", status); continue; }
+
+    console.log("🧠 Ejecutando asistente IA para:", normalized.phoneNumber);
+
+    try {
+      const aiResponse = await runWhatsappAssistant({
+        instanceName,
+        incomingMessage: normalized,
+      });
+
+      console.log("🤖 Resultado IA:", {
+        enabled: aiResponse?.enabled,
+        hasText: Boolean(aiResponse?.text),
+        reason: aiResponse?.reason || null,
+        textPreview: (aiResponse?.text || "").slice(0, 150),
+      });
+
+      if (aiResponse?.enabled && aiResponse?.text) {
+        await sendTextMessage(normalized.phoneNumber, aiResponse.text, instanceName);
+        console.log("✅ Respuesta IA enviada a:", normalized.phoneNumber);
+      } else {
+        console.log("ℹ️ IA no respondió:", aiResponse?.reason || "sin razón");
+      }
+    } catch (error) {
+      console.error("❌ Error ejecutando asistente IA:", error.message, error.stack?.slice(0, 300));
+    }
+  }
+};
+
 module.exports = {
   buildInstanceName,
   createInstanceWithQr,
   disconnectInstance,
   getConnectionState,
+  getRecentMessages,
   getSafeConnectionState,
   normalizeInstanceName,
+  processIncomingMessage,
+  sendTextMessage,
 };

@@ -134,8 +134,53 @@ const disconnectCurrentInstance = async (req, res, next) => {
   }
 };
 
+const handleWebhook = async (req, res, next) => {
+  try {
+    const instanceName = normalizeInstanceName(req.params.instanceName);
+    const payload = req.body;
+
+    console.log("📡 WEBHOOK RECIBIDO:", {
+      instanceName,
+      event: payload?.event || "unknown",
+      hasData: Boolean(payload?.data),
+    });
+
+    // Always respond immediately
+    res.status(200).json({ received: true });
+
+    // Lazy load the service to prevent circular dependencies
+    const { processIncomingMessage } = require("../services/evolution.service");
+
+    // Process messages in the background
+    processIncomingMessage({ instanceName, webhookData: payload }).catch((err) => {
+      console.error("❌ Error procesando webhook:", err.message);
+    });
+
+    // Update connection status on connection.update events
+    if (payload?.event === "connection.update") {
+      const state = payload?.data?.state || payload?.state || "unknown";
+      try {
+        const config = await prisma.cONFIG_WHATSAPP.findFirst({
+          where: { instance_name: instanceName },
+        });
+        if (config) {
+          await prisma.cONFIG_WHATSAPP.update({
+            where: { id_whatsapp: config.id_whatsapp },
+            data: { conectado: state === "open" },
+          });
+        }
+      } catch (e) {
+        console.error("⚠️ Error actualizando estado en webhook:", e.message);
+      }
+    }
+  } catch (error) {
+    console.error("❌ Error en handleWebhook:", error.message);
+  }
+};
+
 module.exports = {
   createInstanceQr,
   getCurrentInstance,
   disconnectCurrentInstance,
+  handleWebhook,
 };

@@ -5,9 +5,9 @@ const authMiddleware = require('../middlewares/auth.middleware');
 
 router.use(authMiddleware);
 
-router.get('/config/:id', async (req, res) => {
+router.get('/config', async (req, res) => {
     try {
-        const [rows] = await pool.execute('SELECT horarios_disponibilidad FROM EMPRESA WHERE id_empresa = ?', [req.params.id]);
+        const [rows] = await pool.execute('SELECT horarios_disponibilidad FROM EMPRESA WHERE id_empresa = ?', [req.user.id_empresa]);
         if (rows.length === 0) return res.status(404).json({ error: 'Empresa no encontrada' });
         res.json(rows[0].horarios_disponibilidad || { config: [] });
     } catch (err) {
@@ -15,11 +15,11 @@ router.get('/config/:id', async (req, res) => {
     }
 });
 
-router.put('/config/:id', async (req, res) => {
+router.put('/config', async (req, res) => {
     const { items } = req.body;
     try {
         const config = { config: items };
-        await pool.execute('UPDATE EMPRESA SET horarios_disponibilidad = ? WHERE id_empresa = ?', [JSON.stringify(config), req.params.id]);
+        await pool.execute('UPDATE EMPRESA SET horarios_disponibilidad = ? WHERE id_empresa = ?', [JSON.stringify(config), req.user.id_empresa]);
         res.json(config);
     } catch (err) {
         res.status(500).json({ error: 'Error al actualizar disponibilidad' });
@@ -27,14 +27,14 @@ router.put('/config/:id', async (req, res) => {
 });
 
 router.get('/', async (req, res) => {
-    const { prestador_id, fecha, empresa_id } = req.query;
+    const { prestador_id, fecha } = req.query;
 
     if (!prestador_id || !fecha) {
         return res.status(400).json({ error: 'Faltan parámetros' });
     }
 
     try {
-        const empId = parseInt(empresa_id);
+        const empId = req.user.id_empresa;
         const [empresaRows] = await pool.execute('SELECT horarios_disponibilidad FROM EMPRESA WHERE id_empresa = ?', [empId]);
         const empresa = empresaRows[0];
 
