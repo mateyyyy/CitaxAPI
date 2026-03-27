@@ -34,7 +34,7 @@ const getNowInTimezone = (timezone = DEFAULT_TIMEZONE) => {
     year: "numeric", month: "2-digit", day: "2-digit",
     hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
   }).formatToParts(new Date()).forEach(p => { parts[p.type] = p.value; });
-  return new Date(`${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}`);
+  return new Date(`${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}Z`);
 };
 
 const pad = (v) => String(v).padStart(2, "0");
@@ -137,7 +137,7 @@ const getCompanyContextByInstanceName = async (instanceName, customerPhone = nul
       customerPendingAppointments = pending.map((t) => ({
         id: t.id_turno,
         date: t.fecha_hora.toISOString().slice(0, 10),
-        time: formatTime(`${pad(t.fecha_hora.getHours())}:${pad(t.fecha_hora.getMinutes())}`),
+        time: formatTime(`${pad(t.fecha_hora.getUTCHours())}:${pad(t.fecha_hora.getUTCMinutes())}`),
         service: t.SERVICIO.nombre,
         professional: `${t.PRESTADOR.USUARIO.nombre} ${t.PRESTADOR.USUARIO.apellido}`,
       }));
@@ -212,8 +212,8 @@ const listAvailableSlots = async ({ companyId, professionalName, startDate, endD
       id_prestador: { in: prestadores.map((p) => p.id_prestador) },
       estado: { in: ["pendiente", "confirmado"] },
       fecha_hora: {
-        gte: new Date(`${normalizedStart}T00:00:00`),
-        lte: new Date(`${normalizedEnd}T23:59:59`),
+        gte: new Date(`${normalizedStart}T00:00:00Z`),
+        lte: new Date(`${normalizedEnd}T23:59:59Z`),
       },
     },
     include: { SERVICIO: true },
@@ -319,7 +319,9 @@ const createAppointmentFromAssistant = async ({ companyId, professionalId, clien
   if (!servicio) throw new Error("Servicio no encontrado");
 
   const duration = servicio.duracion_minutos || 30;
-  const fechaHora = new Date(`${normalizedDate}T${normalizedTime}:00`);
+  // Agregamos la "Z" al final para que JS lo tome como UTC puro
+  // y Prisma guarde 14:30 tal cual, sin sumarle las 3 horas de offset.
+  const fechaHora = new Date(`${normalizedDate}T${normalizedTime}:00Z`);
 
   const endTime = new Date(fechaHora.getTime() + duration * 60000);
   const existing = await prisma.tURNO.findFirst({
@@ -354,7 +356,7 @@ const createAppointmentFromAssistant = async ({ companyId, professionalId, clien
     clientName: client.nombre_wa || clientName,
     date: normalizedDate,
     time: normalizedTime,
-    endTime: `${pad(endTime.getHours())}:${pad(endTime.getMinutes())}`,
+    endTime: `${pad(endTime.getUTCHours())}:${pad(endTime.getUTCMinutes())}`,
     companyId,
     professionalId,
     serviceId: resolvedServiceId,
@@ -379,7 +381,7 @@ const cancelAppointmentFromAssistant = async ({ companyId, clientPhone, date, ti
   const where = {
     id_cliente: client.id_cliente,
     estado: { in: ["pendiente", "confirmado"] },
-    fecha_hora: { gte: new Date() },
+    fecha_hora: { gte: getNowInTimezone() },
   };
 
   const appointments = await prisma.tURNO.findMany({
@@ -393,7 +395,7 @@ const cancelAppointmentFromAssistant = async ({ companyId, clientPhone, date, ti
   }
   if (normalizedTime) {
     filtered = filtered.filter((a) => {
-      const t = `${pad(a.fecha_hora.getHours())}:${pad(a.fecha_hora.getMinutes())}`;
+      const t = `${pad(a.fecha_hora.getUTCHours())}:${pad(a.fecha_hora.getUTCMinutes())}`;
       return t === normalizedTime;
     });
   }
@@ -406,7 +408,7 @@ const cancelAppointmentFromAssistant = async ({ companyId, clientPhone, date, ti
       appointments: filtered.map((a) => ({
         id: a.id_turno,
         date: a.fecha_hora.toISOString().slice(0, 10),
-        time: `${pad(a.fecha_hora.getHours())}:${pad(a.fecha_hora.getMinutes())}`,
+        time: `${pad(a.fecha_hora.getUTCHours())}:${pad(a.fecha_hora.getUTCMinutes())}`,
       })),
     };
   }
@@ -421,7 +423,7 @@ const cancelAppointmentFromAssistant = async ({ companyId, clientPhone, date, ti
     status: "cancelled",
     appointmentId: appointment.id_turno,
     date: appointment.fecha_hora.toISOString().slice(0, 10),
-    time: `${pad(appointment.fecha_hora.getHours())}:${pad(appointment.fecha_hora.getMinutes())}`,
+    time: `${pad(appointment.fecha_hora.getUTCHours())}:${pad(appointment.fecha_hora.getUTCMinutes())}`,
   };
 };
 
@@ -450,7 +452,7 @@ const listAppointmentsByDay = async ({ companyId, date, referenceDate }) => {
   return turnos.map((t) => ({
     appointmentId: t.id_turno,
     date: t.fecha_hora.toISOString().slice(0, 10),
-    time: formatTime(`${pad(t.fecha_hora.getHours())}:${pad(t.fecha_hora.getMinutes())}`),
+    time: formatTime(`${pad(t.fecha_hora.getUTCHours())}:${pad(t.fecha_hora.getUTCMinutes())}`),
     status: t.estado,
     serviceName: t.SERVICIO?.nombre || "Turno",
     professionalName: `${t.PRESTADOR.USUARIO.nombre} ${t.PRESTADOR.USUARIO.apellido}`,
