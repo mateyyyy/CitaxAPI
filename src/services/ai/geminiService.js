@@ -15,7 +15,7 @@ const {
 const { buildAssistantPrompt } = require("./assistantPrompt");
 
 const GEMINI_API_KEY = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || "";
-const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash";
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.1-flash-lite-preview";
 const AI_ENABLED = (process.env.WHATSAPP_AI_ENABLED || "true") === "true";
 const conversationMemory = new Map();
 const MAX_CONVERSATION_MESSAGES = 24;
