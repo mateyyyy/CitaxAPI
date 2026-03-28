@@ -267,6 +267,19 @@ const extractIncomingMessages = (webhookData) => {
   return [];
 };
 
+// ─── Help identify the actual message content (skipping wrappers) ────────
+const unwrapMessage = (msg) => {
+  if (!msg) return { type: "unknown", content: {} };
+  
+  if (msg.ephemeralMessage) return unwrapMessage(msg.ephemeralMessage.message);
+  if (msg.viewOnceMessage) return unwrapMessage(msg.viewOnceMessage.message);
+  if (msg.viewOnceMessageV2) return unwrapMessage(msg.viewOnceMessageV2.message);
+  if (msg.documentWithCaptionMessage) return unwrapMessage(msg.documentWithCaptionMessage.message);
+  
+  const type = Object.keys(msg)[0] || "unknown";
+  return { type, content: msg[type] || {} };
+};
+
 // ─── Normalize an incoming message ────────────────────────────────────
 const normalizeIncomingMessage = (instanceName, raw, webhookData) => {
   const key = raw?.key || {};
@@ -279,14 +292,14 @@ const normalizeIncomingMessage = (instanceName, raw, webhookData) => {
     .replace(/[^\d]/g, "")
     .trim();
 
-  // Determine message type
-  const messageType = Object.keys(msg)[0] || "unknown";
+  // Determine message type (unwrapped)
+  const { type: messageType, content } = unwrapMessage(msg);
 
   const text =
     msg.conversation ||
     msg.extendedTextMessage?.text ||
-    msg.imageMessage?.caption ||
-    msg.videoMessage?.caption ||
+    content.caption ||
+    content.text ||
     "";
 
   return {
@@ -371,6 +384,8 @@ const processIncomingMessage = async ({ instanceName, webhookData }) => {
       const transcript = await processAudioMessage(instanceName, normalized.messageId);
       normalized.text = transcript;
       console.log("📝 Audio transcrito:", transcript);
+    } else {
+      console.log("ℹ️ Tipo de mensaje:", normalized.messageType);
     }
 
     console.log("🧠 Ejecutando asistente IA para:", normalized.phoneNumber);
