@@ -1,4 +1,6 @@
 const axios = require("axios");
+const { processAudioMessage } = require("./ai/audioTranscriptionService");
+
 
 const EVOLUTION_API_URL = process.env.EVOLUTION_API_URL || "http://localhost:8080";
 const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY || "429683C4C977415CAAFCCE10F7D57E11";
@@ -277,6 +279,9 @@ const normalizeIncomingMessage = (instanceName, raw, webhookData) => {
     .replace(/[^\d]/g, "")
     .trim();
 
+  // Determine message type
+  const messageType = Object.keys(msg)[0] || "unknown";
+
   const text =
     msg.conversation ||
     msg.extendedTextMessage?.text ||
@@ -292,6 +297,7 @@ const normalizeIncomingMessage = (instanceName, raw, webhookData) => {
     text,
     fromMe,
     isGroup,
+    messageType,
     timestamp: raw.messageTimestamp || Date.now(),
     raw,
   };
@@ -356,8 +362,16 @@ const processIncomingMessage = async ({ instanceName, webhookData }) => {
 
     // Check connection state
     const connectionState = await getSafeConnectionState(instanceName);
-    const status = connectionState?.instance?.state || connectionState?.state || "unknown";
-    if (status !== "open") { console.log("⏭️ Ignorado: instancia no abierta, status:", status); continue; }
+    const staticStatus = connectionState?.instance?.state || connectionState?.state || "unknown";
+    if (staticStatus !== "open") { console.log("⏭️ Ignorado: instancia no abierta, status:", staticStatus); continue; }
+
+    // Audio Transcription logic
+    if (normalized.messageType === "audioMessage") {
+      console.log("🎙️ Procesando mensaje de audio...");
+      const transcript = await processAudioMessage(instanceName, normalized.messageId);
+      normalized.text = transcript;
+      console.log("📝 Audio transcrito:", transcript);
+    }
 
     console.log("🧠 Ejecutando asistente IA para:", normalized.phoneNumber);
 
