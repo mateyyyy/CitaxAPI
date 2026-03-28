@@ -6,6 +6,7 @@ const EVOLUTION_API_URL = process.env.EVOLUTION_API_URL || "http://localhost:808
 const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY || "429683C4C977415CAAFCCE10F7D57E11";
 const EVOLUTION_WEBHOOK_ENABLED = (process.env.EVOLUTION_WEBHOOK_ENABLED || "true") === "true";
 const BACKEND_PUBLIC_URL = process.env.BACKEND_PUBLIC_URL || "";
+const WHATSAPP_INSTANCE_PREFIX = process.env.WHATSAPP_INSTANCE_PREFIX || "citax";
 
 const evolutionClient = axios.create({
   baseURL: EVOLUTION_API_URL,
@@ -35,10 +36,12 @@ const normalizeInstanceName = (value) => {
 };
 
 const buildInstanceName = ({ companyId }) => {
-  return normalizeInstanceName(`citax-empresa-${companyId}-whatsapp`);
+  return normalizeInstanceName(
+    `${WHATSAPP_INSTANCE_PREFIX}-empresa-${companyId}-whatsapp`
+  );
 };
 
-const ensureDataImageUrl = (value) => {
+const ensureImageDataUrl = (value) => {
   const raw = String(value || "").trim();
   if (!raw) return "";
   if (raw.startsWith("data:image/")) return raw;
@@ -48,64 +51,41 @@ const ensureDataImageUrl = (value) => {
   return "";
 };
 
-const getQrPayloadCandidates = (payload) => {
-  if (!payload) return [];
-  if (typeof payload === "string") return [payload];
-  return [
-    payload.qr,
-    payload.qrcode,
-    payload.code,
-    payload.base64,
-    payload.imageDataUrl,
-    payload.data,
-    payload.data?.qr,
-    payload.data?.qrcode,
-    payload.data?.code,
-    payload.data?.base64,
-    payload.data?.imageDataUrl,
-  ].filter(Boolean);
-};
-
 const normalizeQrPayload = (payload) => {
-  const qr = {
+  const candidates = [
+    payload?.qrcode,
+    payload?.qr,
+    payload?.base64,
+    payload?.code,
+    payload?.imageDataUrl,
+  ].filter(Boolean);
+
+  const normalized = {
     code: "",
     pairingCode: "",
     imageDataUrl: "",
     source: "none",
   };
 
-  const candidates = getQrPayloadCandidates(payload);
   for (const candidate of candidates) {
-    if (!candidate) continue;
+    if (typeof candidate !== "string") continue;
 
-    if (typeof candidate === "string") {
-      const asImage = ensureDataImageUrl(candidate);
-      if (asImage && !qr.imageDataUrl) qr.imageDataUrl = asImage;
-      else if (!qr.code) qr.code = candidate.trim();
+    const asImage = ensureImageDataUrl(candidate);
+    if (asImage && !normalized.imageDataUrl) {
+      normalized.imageDataUrl = asImage;
+      normalized.source = "image";
       continue;
     }
 
-    if (typeof candidate === "object") {
-      if (!qr.code && typeof candidate.code === "string") {
-        qr.code = candidate.code.trim();
-      }
-      if (!qr.pairingCode && typeof candidate.pairingCode === "string") {
-        qr.pairingCode = candidate.pairingCode.trim();
-      }
-      if (!qr.imageDataUrl && typeof candidate.base64 === "string") {
-        qr.imageDataUrl = ensureDataImageUrl(candidate.base64);
-      }
-      if (!qr.imageDataUrl && typeof candidate.imageDataUrl === "string") {
-        qr.imageDataUrl = ensureDataImageUrl(candidate.imageDataUrl);
-      }
+    if (!normalized.code) {
+      normalized.code = candidate.trim();
+      normalized.source = "code";
     }
   }
 
-  if (qr.code) qr.source = "code";
-  else if (qr.imageDataUrl) qr.source = "image";
-
-  return qr;
+  return normalized;
 };
+
 
 const getConnectionState = async (instanceName) => {
   const normalizedInstanceName = normalizeInstanceName(instanceName);
@@ -230,12 +210,14 @@ const disconnectInstance = async (instanceName) => {
     return { success: true, instanceName: normalizedInstanceName, response: response.data };
   } catch (error) {
     const status = error.response?.status;
-    if (status === 404 || status === 400) {
-      clearLatestQr(normalizedInstanceName);
+    const code = error.code;
+
+    // Instance already gone or Evolution API not reachable — treat as success
+    if (status === 404 || status === 400 || code === "ECONNREFUSED" || code === "ETIMEDOUT" || code === "ECONNABORTED") {
       return {
         success: true,
         instanceName: normalizedInstanceName,
-        response: error.response?.data || { message: "Instancia ya desconectada o no existe" },
+        response: error.response?.data || { message: "Instancia desconectada (o Evolution API no disponible)" },
       };
     }
     throw error;
@@ -248,10 +230,7 @@ const sendTextMessage = async (phoneNumber, text, instanceName) => {
   const number = String(phoneNumber).replace(/[^\d]/g, "");
   const response = await evolutionClient.post(
     `/message/sendText/${normalizedInstanceName}`,
-    {
-      number,
-      text,
-    }
+    { number, text }
   );
   return response.data;
 };
@@ -505,9 +484,9 @@ module.exports = {
   getSafeConnectionState,
   hasProcessableText,
   normalizeInstanceName,
-  normalizeIncomingMessage,
   normalizeQrPayload,
   processIncomingMessage,
+  registerWebhook,
   sendTextMessage,
   storeLatestQr,
 };

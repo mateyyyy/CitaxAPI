@@ -49,7 +49,7 @@ router.post('/login', async (req, res) => {
             id_empresa: empresa?.id_empresa || prestadorData?.id_empresa || null,
             id_prestador: prestadorData?.id_prestador || null,
             rol: user.rol
-        }, JWT_SECRET, { expiresIn: '24h' });
+        }, JWT_SECRET, { expiresIn: '30d' });
 
         res.json({
             token,
@@ -68,6 +68,66 @@ router.post('/login', async (req, res) => {
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Error en el servidor' });
+    }
+});
+
+// Refresh token endpoint - renews the token if it's still valid
+router.post('/refresh', async (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ error: 'No token provided' });
+    }
+
+    const token = authHeader.split(' ')[1];
+
+    try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+
+        // Fetch fresh user data from DB
+        const [rows] = await pool.execute('SELECT * FROM USUARIO WHERE id_usuario = ?', [decoded.id_usuario]);
+        const user = rows[0];
+        if (!user) return res.status(401).json({ error: 'User not found' });
+
+        const [empresaRows] = await pool.execute('SELECT * FROM EMPRESA WHERE id_usuario = ?', [user.id_usuario]);
+        const empresa = empresaRows[0];
+
+        let prestadorData = null;
+        if (user.rol === 'prestador') {
+            const [prestRows] = await pool.execute(
+                `SELECT p.id_prestador, p.id_empresa, e.nombre_comercial, e.slug
+                 FROM PRESTADOR p
+                 JOIN EMPRESA e ON p.id_empresa = e.id_empresa
+                 WHERE p.id_usuario = ?`,
+                [user.id_usuario]
+            );
+            prestadorData = prestRows[0];
+        }
+
+        // Issue a brand new token with fresh 30-day expiry
+        const newToken = jwt.sign({
+            id_usuario: user.id_usuario,
+            email: user.email,
+            id_empresa: empresa?.id_empresa || prestadorData?.id_empresa || null,
+            id_prestador: prestadorData?.id_prestador || null,
+            rol: user.rol
+        }, JWT_SECRET, { expiresIn: '30d' });
+
+        res.json({
+            token: newToken,
+            user: {
+                id: user.id_usuario,
+                email: user.email,
+                nombre: user.nombre,
+                apellido: user.apellido,
+                rol: user.rol,
+                id_prestador: prestadorData?.id_prestador || null,
+                empresa_id: empresa?.id_empresa || prestadorData?.id_empresa || null,
+                nombre_comercial: empresa?.nombre_comercial || prestadorData?.nombre_comercial || null,
+                slug: empresa?.slug || prestadorData?.slug || null
+            }
+        });
+    } catch (err) {
+        return res.status(401).json({ error: 'Invalid or expired token' });
     }
 });
 

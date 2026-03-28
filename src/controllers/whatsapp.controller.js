@@ -6,7 +6,7 @@ const {
   getLatestQr,
   getSafeConnectionState,
   normalizeInstanceName,
-  normalizeQrPayload,
+  registerWebhook,
   storeLatestQr,
 } = require("../services/evolution.service");
 
@@ -44,10 +44,55 @@ const createInstanceQr = async (req, res, next) => {
     const { number } = req.body || {};
     const companyId = req.user.id_empresa;
 
-    const result = await createInstanceWithQr({
-      number: number ? String(number).trim() : null,
-      companyId,
-    });
+    let result;
+    try {
+      result = await createInstanceWithQr({
+        number: number ? String(number).trim() : null,
+        companyId,
+      });
+    } catch (createError) {
+      // If instance already exists (400), try to reconnect it instead of failing
+      const axiosStatus = createError.response?.status || createError.status;
+      if (axiosStatus === 400 || axiosStatus === 409) {
+        const instanceName = normalizeInstanceName(buildInstanceName({ companyId }));
+
+        // Try to connect the existing instance to get a QR
+        try {
+          const connectRes = await require("axios").get(
+            `${process.env.EVOLUTION_API_URL || "http://localhost:8080"}/instance/connect/${instanceName}`,
+            { headers: { apikey: process.env.EVOLUTION_API_KEY } }
+          );
+          const connectionState = await getSafeConnectionState(instanceName);
+          const webhook = await registerWebhook(instanceName);
+          const qr = storeLatestQr(instanceName, connectRes.data);
+
+          result = {
+            instanceName,
+            qr,
+            qrcode: connectRes.data?.qrcode || null,
+            raw: connectRes.data,
+            connectionState,
+            webhook,
+          };
+        } catch (connectError) {
+          // If connect also fails, still try to return status
+          const connectionState = await getSafeConnectionState(instanceName);
+          const qr = getLatestQr(instanceName);
+          const webhook = await registerWebhook(instanceName);
+
+          result = {
+            instanceName,
+            qr,
+            qrcode: null,
+            raw: null,
+            connectionState,
+            webhook,
+          };
+        }
+      } else {
+        throw createError;
+      }
+    }
 
     const status = result.connectionState?.instance?.state || result.connectionState?.state || "close";
 
@@ -181,7 +226,54 @@ const handleWebhook = async (req, res, next) => {
       }
     }
   } catch (error) {
-    console.error("Error en handleWebhook:", error.message);
+    console.error("❌ Error en handleWebhook:", error.message);
+  }
+};
+
+const getMessages = async (req, res, next) => {
+  try {
+    const companyId = req.user.id_empresa;
+    const storedInstance = await prisma.cONFIG_WHATSAPP.findUnique({
+      where: { id_empresa: companyId },
+    });
+
+    if (!storedInstance || !storedInstance.instance_name) {
+      return res.json({ messages: [] });
+    }
+
+    const instanceName = normalizeInstanceName(storedInstance.instance_name);
+    const { getRecentMessages } = require("../services/evolution.service");
+    const messages = getRecentMessages(instanceName);
+
+    res.json({ messages });
+  } catch (error) {
+    res.status(500).json({ error: error.message || "Error al obtener mensajes" });
+  }
+};
+
+const sendMessage = async (req, res, next) => {
+  try {
+    const { phone, message } = req.body || {};
+    if (!phone || !message) {
+      return res.status(400).json({ error: "Se requiere phone y message" });
+    }
+
+    const companyId = req.user.id_empresa;
+    const storedInstance = await prisma.cONFIG_WHATSAPP.findUnique({
+      where: { id_empresa: companyId },
+    });
+
+    if (!storedInstance || !storedInstance.instance_name) {
+      return res.status(400).json({ error: "No hay instancia de WhatsApp configurada" });
+    }
+
+    const instanceName = normalizeInstanceName(storedInstance.instance_name);
+    const { sendTextMessage } = require("../services/evolution.service");
+    const result = await sendTextMessage(phone, message, instanceName);
+
+    res.json({ success: true, result });
+  } catch (error) {
+    res.status(500).json({ error: error.message || "Error al enviar mensaje" });
   }
 };
 
@@ -190,4 +282,7 @@ module.exports = {
   getCurrentInstance,
   disconnectCurrentInstance,
   handleWebhook,
+  getMessages,
+  sendMessage,
 };
+
