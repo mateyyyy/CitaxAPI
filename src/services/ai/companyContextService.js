@@ -307,6 +307,25 @@ const createAppointmentFromAssistant = async ({ companyId, professionalId, clien
 
   if (!normalizedDate || !normalizedTime) throw new Error("Fecha u hora inválidas");
 
+  // VALIDACIÓN ESTRICTA: El horario DEBE existir en la disponibilidad teórica calculada por el sistema.
+  const validSlotsInfo = await listAvailableSlots({
+    companyId,
+    startDate: normalizedDate,
+    endDate: normalizedDate,
+    referenceDate,
+    limit: 150,
+  });
+
+  const slotIsValid = validSlotsInfo.some(s => 
+    Number(s.professionalId) === Number(professionalId) && 
+    s.date === normalizedDate && 
+    s.time === normalizedTime
+  );
+
+  if (!slotIsValid) {
+    throw new Error(`El horario solicitado (${normalizedDate} a las ${normalizedTime}) NO forma parte de la jornada laboral o ya caducó. Usa la herramienta find_available_slots para ver qué horarios sí están disponibles y ofrécelos.`);
+  }
+
   const prestador = await prisma.pRESTADOR.findUnique({
     where: { id_prestador: professionalId },
     include: { USUARIO: true },

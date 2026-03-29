@@ -57,7 +57,14 @@ const createTools = ({ companyContext, customerPhone }) => {
         return JSON.stringify({
           companyName: companyContext.companyName,
           timezone: companyContext.timezone,
-          professionals: companyContext.professionals,
+          professionals: companyContext.professionals.map(p => ({
+            id: p.id,
+            name: p.name,
+            services: p.services,
+            // Solo proveemos metadata principal.
+            // Para conocer la disponibilidad real, Gemini DEBE llamar a find_available_slots.
+            requisito: "Para saber si este prestador atiende un día u horario, DEBES usar obligatoriamente la herramienta find_available_slots. NO asumas ningún horario comercial."
+          })),
           services: companyContext.services,
         });
       },
