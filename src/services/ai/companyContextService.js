@@ -65,9 +65,9 @@ const normalizeDate = (value, referenceDate = new Date()) => {
   return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
 };
 
-const addDays = (dateStr, days) => { const d = new Date(`${dateStr}T00:00:00`); d.setDate(d.getDate() + days); return d.toISOString().slice(0, 10); };
-const toWeekdayNumber = (dateStr) => { const d = new Date(`${dateStr}T00:00:00`).getDay(); return d === 0 ? 7 : d; };
-const combineDateTime = (dateStr, timeStr) => new Date(`${dateStr}T${timeStr}:00`);
+const addDays = (dateStr, days) => { const d = new Date(`${dateStr}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + days); return d.toISOString().slice(0, 10); };
+const toWeekdayNumber = (dateStr) => { const d = new Date(`${dateStr}T12:00:00Z`).getUTCDay(); return d === 0 ? 7 : d; };
+const combineDateTime = (dateStr, timeStr) => new Date(`${dateStr}T${timeStr}:00Z`);
 const overlaps = (s1, e1, s2, e2) => s1 < e2 && s2 < e1;
 
 // ─── Get company context by instance name ─────────────────────────────
@@ -261,8 +261,8 @@ const listAvailableSlots = async ({ companyId, professionalName, startDate, endD
               professionalId: prestador.id_prestador,
               professionalName: `${prestador.USUARIO.nombre} ${prestador.USUARIO.apellido}`,
               date: cursor,
-              time: `${pad(slotStart.getHours())}:${pad(slotStart.getMinutes())}`,
-              endTime: `${pad(slotEnd.getHours())}:${pad(slotEnd.getMinutes())}`,
+              time: `${pad(slotStart.getUTCHours())}:${pad(slotStart.getUTCMinutes())}`,
+              endTime: `${pad(slotEnd.getUTCHours())}:${pad(slotEnd.getUTCMinutes())}`,
               duration,
               scheduleSource: prestador.availability.source,
             });
@@ -443,8 +443,8 @@ const listAppointmentsByDay = async ({ companyId, date, referenceDate }) => {
   const normalizedDate = normalizeDate(date, referenceDate) || normalizeDate(referenceDate);
   if (!normalizedDate) return [];
 
-  const dayStart = new Date(`${normalizedDate}T00:00:00`);
-  const dayEnd = new Date(`${normalizedDate}T23:59:59`);
+  const dayStart = new Date(`${normalizedDate}T00:00:00Z`);
+  const dayEnd = new Date(`${normalizedDate}T23:59:59Z`);
 
   const turnos = await prisma.tURNO.findMany({
     where: {

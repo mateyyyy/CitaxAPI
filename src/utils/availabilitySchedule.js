@@ -73,17 +73,17 @@ const buildAvailabilityMap = (raw) => {
 };
 
 const addDays = (dateStr, days) => {
-  const date = new Date(`${dateStr}T00:00:00`);
-  date.setDate(date.getDate() + days);
+  const date = new Date(`${dateStr}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
   return date.toISOString().slice(0, 10);
 };
 
 const toWeekdayNumber = (dateStr) => {
-  const weekday = new Date(`${dateStr}T00:00:00`).getDay();
+  const weekday = new Date(`${dateStr}T12:00:00Z`).getUTCDay();
   return weekday === 0 ? 7 : weekday;
 };
 
-const combineDateTime = (dateStr, timeStr) => new Date(`${dateStr}T${timeStr}:00`);
+const combineDateTime = (dateStr, timeStr) => new Date(`${dateStr}T${timeStr}:00Z`);
 
 const overlaps = (startA, endA, startB, endB) => startA < endB && startB < endA;
 
