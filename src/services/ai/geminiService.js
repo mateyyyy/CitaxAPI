@@ -86,7 +86,7 @@ const createTools = ({ companyContext, customerPhone }) => {
           professionalName: z.string().optional().describe("Nombre del prestador."),
           startDate: z.string().optional().describe("Fecha desde (YYYY-MM-DD)."),
           endDate: z.string().optional().describe("Fecha hasta (YYYY-MM-DD)."),
-          limit: z.number().optional().default(30).describe("Máximo de resultados (1-40)."),
+          limit: z.number().optional().default(150).describe("Máximo de resultados (1-200)."),
         }),
       }
     ),
@@ -206,9 +206,8 @@ const runWhatsappAssistant = async ({ instanceName, incomingMessage, companyCont
 
   const tools = createTools({ companyContext, customerPhone });
   const graph = createGraph(tools);
-  const systemPrompt = buildAssistantPrompt(companyContext);
-
   const preferredName = resolvePreferredContactName(incomingMessage?.pushName);
+  const systemPrompt = buildAssistantPrompt(companyContext, preferredName);
   const temporalRef = `Referencia temporal: hoy es ${companyContext.currentDayName} ${companyContext.currentDate} y la hora actual es ${companyContext.currentTime} (${companyContext.timezone}).`;
   const contactRef = preferredName
     ? `Este cliente figura como '${preferredName}' en WhatsApp.`

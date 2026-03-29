@@ -106,7 +106,20 @@ const createInstanceWithQr = async ({ instanceName, number = null, companyId }) 
     payload.number = String(number);
   }
 
-  const response = await evolutionOpenClient.post("/instance/create-qr", payload);
+  let response;
+  try {
+    response = await evolutionOpenClient.post("/instance/create-qr", payload);
+    // Delay de seguridad de 2 segundos para instancias nuevas
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+  } catch (error) {
+    // Si la instancia ya existe, Evolution devuelve 400. En ese caso simplemente nos conectamos.
+    if (error.response?.status === 400 || error.response?.status === 403) {
+      response = await evolutionOpenClient.get(`/instance/connect/${resolvedInstanceName}`);
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    } else {
+      throw error;
+    }
+  }
 
   const connectionState = await getSafeConnectionState(resolvedInstanceName);
   const webhook = await registerWebhook(resolvedInstanceName);
@@ -295,5 +308,6 @@ module.exports = {
   getSafeConnectionState,
   normalizeInstanceName,
   processIncomingMessage,
+  registerWebhook,
   sendTextMessage,
 };

@@ -1,7 +1,6 @@
 const prisma = require("../../config/prisma");
 
 const DEFAULT_TIMEZONE = "America/Argentina/Buenos_Aires";
-const SLOT_INTERVAL_MINUTES = 60;
 
 const getCurrentDateInTimeZone = (timezone = DEFAULT_TIMEZONE) => {
   return new Intl.DateTimeFormat("en-CA", {
@@ -89,6 +88,19 @@ const getCompanyContextByInstanceName = async (instanceName, customerPhone = nul
   if (!config || !config.EMPRESA) return null;
 
   const empresa = config.EMPRESA;
+  let botConfig = empresa.bot_config || {};
+  
+  // Si Prisma no está actualizado localmente, buscamos el campo con queryRaw
+  if (typeof empresa.bot_config === 'undefined') {
+    try {
+        const rows = await prisma.$queryRaw`SELECT bot_config FROM EMPRESA WHERE id_empresa = ${empresa.id_empresa}`;
+        if (rows && rows.length > 0 && rows[0].bot_config) {
+            botConfig = rows[0].bot_config;
+            if (typeof botConfig === 'string') botConfig = JSON.parse(botConfig);
+        }
+    } catch(e) { console.error("Error obteniendo bot_config:", e); }
+  }
+
   const horarios = empresa.horarios_disponibilidad || {};
 
   const professionals = empresa.PRESTADOR.map((p) => ({
@@ -158,13 +170,14 @@ const getCompanyContextByInstanceName = async (instanceName, customerPhone = nul
     professionals,
     services,
     horarios,
+    botConfig,
     customerPendingAppointments,
     assistantPersonaName: professionals[0]?.name || empresa.nombre_comercial,
   };
 };
 
 // ─── List available slots ─────────────────────────────────────────────
-const listAvailableSlots = async ({ companyId, professionalName, startDate, endDate, referenceDate, limit = 30 }) => {
+const listAvailableSlots = async ({ companyId, professionalName, startDate, endDate, referenceDate, limit = 100 }) => {
   const normalizedStart = normalizeDate(startDate, referenceDate) || normalizeDate(referenceDate) || new Date().toISOString().slice(0, 10);
   const normalizedEnd = normalizeDate(endDate, referenceDate) || addDays(normalizedStart, 14);
 
@@ -258,7 +271,7 @@ const listAvailableSlots = async ({ companyId, professionalName, startDate, endD
             });
           }
 
-          slotStart = new Date(slotStart.getTime() + SLOT_INTERVAL_MINUTES * 60000);
+          slotStart = new Date(slotStart.getTime() + (duration >= 15 ? duration : 30) * 60000);
           if (slots.length >= limit) return slots;
         }
       }
