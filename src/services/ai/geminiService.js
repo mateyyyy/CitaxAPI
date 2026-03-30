@@ -437,31 +437,36 @@ const createSupportTools = ({ customerPhone, supportState }) => {
         const resolvedClient = clientName || last.clientName || "";
 
         const text = `Aviso de cancelación: ${supportState.companyName || "Empresa"} canceló un turno (${resolvedDate} ${resolvedTime})${resolvedProfessional ? `, profesional: ${resolvedProfessional}` : ""}${resolvedClient ? `, cliente: ${resolvedClient}` : ""}.`;
+
+        if (!supportState.companyId) {
+          throw new Error("No hay una cuenta de empresa autenticada para enviar el aviso.");
+        }
+
+        const { buildInstanceName, sendTextMessage } = require("../evolution.service");
+        const companyInstanceName = buildInstanceName({ companyId: supportState.companyId });
+
         try {
-          const response = await axios.post(
-            `${EVOLUTION_API_URL}/message/sendText/${SUPPORT_INSTANCE_NAME}`,
-            { number: targetPhone, text },
-            {
-              headers: {
-                "Content-Type": "application/json",
-                apikey: EVOLUTION_API_KEY,
-              },
-              timeout: 15000,
-            }
-          );
+          const res = await sendTextMessage(targetPhone, text, companyInstanceName);
           console.log("✅ Aviso de cancelación enviado", {
             to: targetPhone,
             company: supportState.companyName || supportState.companyId,
+            viaInstance: companyInstanceName
           });
-          return JSON.stringify({ success: true, targetPhone, response: response.data });
+          return JSON.stringify({ success: true, targetPhone, response: res });
         } catch (error) {
           const details = error.response?.data || null;
-          console.error("❌ Error enviando aviso de cancelación", {
-            to: targetPhone,
-            message: error.message,
-            status: error.response?.status || null,
-            details,
-          });
+          console.error(`\n==============================================`);
+          console.error("❌ ERROR CRÍTICO - enviando aviso de cancelación al cliente");
+          console.error("  Desde instancia de la empresa:", companyInstanceName);
+          console.error("  Teléfono destino:", targetPhone);
+          console.error("  Texto:", text);
+          console.error("  Status HTTP:", error.response?.status || 'N/A');
+          console.error("  Mensaje error NATIVO:", error.message);
+          if (details) {
+            console.error("  Detalles Evolution API:");
+            console.error(JSON.stringify(details, null, 2));
+          }
+          console.error(`==============================================\n`);
           return JSON.stringify({
             success: false,
             targetPhone,
