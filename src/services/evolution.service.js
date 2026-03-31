@@ -54,14 +54,27 @@ const ensureImageDataUrl = (value) => {
   return "";
 };
 
-const normalizeQrPayload = (payload) => {
-  const candidates = [
-    payload?.qrcode,
-    payload?.qr,
-    payload?.base64,
-    payload?.code,
-    payload?.imageDataUrl,
+const getQrPayloadCandidates = (payload) => {
+  if (!payload) return [];
+  if (typeof payload === "string") return [payload];
+
+  return [
+    payload.qr,
+    payload.qrcode,
+    payload.code,
+    payload.base64,
+    payload.imageDataUrl,
+    payload.data,
+    payload.data?.qr,
+    payload.data?.qrcode,
+    payload.data?.code,
+    payload.data?.base64,
+    payload.data?.imageDataUrl,
   ].filter(Boolean);
+};
+
+const normalizeQrPayload = (payload) => {
+  const candidates = getQrPayloadCandidates(payload);
 
   const normalized = {
     code: "",
@@ -71,18 +84,37 @@ const normalizeQrPayload = (payload) => {
   };
 
   for (const candidate of candidates) {
-    if (typeof candidate !== "string") continue;
+    if (typeof candidate === "string") {
+      const asImage = ensureImageDataUrl(candidate);
+      if (asImage && !normalized.imageDataUrl) {
+        normalized.imageDataUrl = asImage;
+        normalized.source = "image";
+        continue;
+      }
 
-    const asImage = ensureImageDataUrl(candidate);
-    if (asImage && !normalized.imageDataUrl) {
-      normalized.imageDataUrl = asImage;
-      normalized.source = "image";
+      if (!normalized.code) {
+        normalized.code = candidate.trim();
+        normalized.source = "code";
+      }
       continue;
     }
 
-    if (!normalized.code) {
-      normalized.code = candidate.trim();
-      normalized.source = "code";
+    if (typeof candidate === "object") {
+      if (!normalized.code && typeof candidate.code === "string") {
+        normalized.code = candidate.code.trim();
+        normalized.source = "code";
+      }
+      if (!normalized.pairingCode && typeof candidate.pairingCode === "string") {
+        normalized.pairingCode = candidate.pairingCode.trim();
+      }
+      if (!normalized.imageDataUrl && typeof candidate.base64 === "string") {
+        normalized.imageDataUrl = ensureImageDataUrl(candidate.base64);
+        if (normalized.imageDataUrl) normalized.source = "image";
+      }
+      if (!normalized.imageDataUrl && typeof candidate.imageDataUrl === "string") {
+        normalized.imageDataUrl = ensureImageDataUrl(candidate.imageDataUrl);
+        if (normalized.imageDataUrl) normalized.source = "image";
+      }
     }
   }
 
@@ -489,6 +521,7 @@ module.exports = {
   getSafeConnectionState,
   hasProcessableText,
   normalizeInstanceName,
+  normalizeIncomingMessage,
   normalizeQrPayload,
   processIncomingMessage,
   registerWebhook,

@@ -5,6 +5,7 @@ const {
   extractIncomingMessages,
   hasProcessableText,
   normalizeIncomingMessage,
+  normalizeQrPayload,
 } = require("../src/services/evolution.service");
 
 test("normalizeIncomingMessage handles plain text messages", () => {
@@ -123,4 +124,18 @@ test("hasProcessableText rejects empty and transcription placeholders", () => {
     false
   );
   assert.equal(hasProcessableText("Necesito cancelar mi turno"), true);
+});
+
+test("normalizeQrPayload supports nested webhook payload data", () => {
+  const normalized = normalizeQrPayload({
+    event: "qrcode.updated",
+    data: {
+      base64: "aGVsbG8=",
+      code: "2@ABCD",
+    },
+  });
+
+  assert.equal(normalized.code, "2@ABCD");
+  assert.equal(normalized.source, "image");
+  assert.match(normalized.imageDataUrl, /^data:image\/png;base64,/);
 });

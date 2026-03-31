@@ -1,8 +1,7 @@
-const { HumanMessage, SystemMessage, isAIMessage } = require("@langchain/core/messages");
+﻿const { AIMessage, HumanMessage, SystemMessage, isAIMessage } = require("@langchain/core/messages");
 const { tool } = require("@langchain/core/tools");
 const { StateGraph, MessagesAnnotation, END, START } = require("@langchain/langgraph");
 const { ToolNode, toolsCondition } = require("@langchain/langgraph/prebuilt");
-const { ChatGoogleGenerativeAI } = require("@langchain/google-genai");
 const { z } = require("zod");
 const axios = require("axios");
 
@@ -17,10 +16,25 @@ const {
 const { authenticateCompanyUser } = require("../authCompany.service");
 const { getSupportSessionDb, setSupportSessionDb } = require("../supportAuthSession.service");
 const { buildAssistantPrompt } = require("./assistantPrompt");
+const {
+  formatNaturalDate,
+  summarizeAvailableSlotsForAssistant,
+} = require("./slotPresentation");
 
-const GEMINI_API_KEY = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || "";
-const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.1-flash-lite-preview";
 const AI_ENABLED = (process.env.WHATSAPP_AI_ENABLED || "true") === "true";
+const DEFAULT_PROVIDER_BASE_URLS = {
+  groq: "https://api.groq.com/openai/v1",
+  openrouter: "https://openrouter.ai/api/v1",
+};
+const DEFAULT_PROVIDER_MODELS = {
+  groq: "llama-3.3-70b-versatile",
+  openrouter: "openrouter/free",
+};
+const LLM_TEMPERATURE = Number(process.env.LLM_TEMPERATURE || 0);
+const LLM_MAX_TOKENS = Number(process.env.LLM_MAX_TOKENS || 1200);
+const LLM_REQUEST_TIMEOUT_MS = Number(
+  process.env.LLM_REQUEST_TIMEOUT_MS || 45000
+);
 const conversationMemory = new Map();
 const MAX_CONVERSATION_MESSAGES = 24;
 const SUPPORT_INSTANCE_NAME = String(process.env.SUPPORT_WHATSAPP_INSTANCE || "citax-support-whatsapp")
@@ -39,6 +53,88 @@ const EVOLUTION_API_URL = process.env.EVOLUTION_API_URL || "http://localhost:808
 const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY || "";
 const LAST_CANCELLED_TTL_MS = 2 * 60 * 60 * 1000;
 
+const normalizeProviderName = (value, fallback = "") => {
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized || fallback;
+};
+
+const getProviderApiKeyFromEnv = (providerName) => {
+  if (providerName === "groq") {
+    return String(process.env.GROQ_API_KEY || "").trim();
+  }
+
+  if (providerName === "openrouter") {
+    return String(process.env.OPENROUTER_API_KEY || "").trim();
+  }
+
+  return "";
+};
+
+const getProviderBaseUrlFromEnv = (providerName) => {
+  if (providerName === "groq") {
+    return String(process.env.GROQ_BASE_URL || DEFAULT_PROVIDER_BASE_URLS.groq).trim();
+  }
+
+  if (providerName === "openrouter") {
+    return String(process.env.OPENROUTER_BASE_URL || DEFAULT_PROVIDER_BASE_URLS.openrouter).trim();
+  }
+
+  return "";
+};
+
+const getProviderModelFromEnv = (providerName) => {
+  if (providerName === "groq") {
+    return String(process.env.GROQ_MODEL || DEFAULT_PROVIDER_MODELS.groq).trim();
+  }
+
+  if (providerName === "openrouter") {
+    return String(process.env.OPENROUTER_MODEL || DEFAULT_PROVIDER_MODELS.openrouter).trim();
+  }
+
+  return "";
+};
+
+const resolveSlotProviderConfig = ({ slot, defaultProvider }) => {
+  const prefix = slot === "primary" ? "LLM_PRIMARY" : "LLM_FALLBACK";
+  const providerName = normalizeProviderName(
+    process.env[`${prefix}_PROVIDER`],
+    defaultProvider
+  );
+  const apiKey =
+    String(process.env[`${prefix}_API_KEY`] || "").trim() ||
+    getProviderApiKeyFromEnv(providerName);
+  const baseUrl =
+    String(process.env[`${prefix}_BASE_URL`] || "").trim() ||
+    getProviderBaseUrlFromEnv(providerName) ||
+    DEFAULT_PROVIDER_BASE_URLS[providerName] ||
+    "";
+  const model =
+    String(process.env[`${prefix}_MODEL`] || "").trim() ||
+    getProviderModelFromEnv(providerName) ||
+    DEFAULT_PROVIDER_MODELS[providerName] ||
+    "";
+  const label =
+    String(process.env[`${prefix}_LABEL`] || "").trim() ||
+    `${providerName}-${model}`;
+
+  return {
+    name: providerName,
+    label,
+    apiKey,
+    baseUrl,
+    model,
+  };
+};
+
+const PRIMARY_PROVIDER_CONFIG = resolveSlotProviderConfig({
+  slot: "primary",
+  defaultProvider: "groq",
+});
+const FALLBACK_PROVIDER_CONFIG = resolveSlotProviderConfig({
+  slot: "fallback",
+  defaultProvider: "openrouter",
+});
+
 const getConversationKey = ({ instanceName, customerPhone }) => `${instanceName}:${customerPhone}`;
 
 const getConversationHistory = ({ instanceName, customerPhone }) => {
@@ -52,7 +148,13 @@ const setConversationHistory = ({ instanceName, customerPhone, messages }) => {
   conversationMemory.set(getConversationKey({ instanceName, customerPhone }), filtered);
 };
 
-const isAssistantConfigured = () => AI_ENABLED && Boolean(GEMINI_API_KEY);
+const clearConversationHistory = ({ instanceName, customerPhone }) => {
+  conversationMemory.delete(getConversationKey({ instanceName, customerPhone }));
+};
+
+const isAssistantConfigured = () =>
+  AI_ENABLED &&
+  Boolean(PRIMARY_PROVIDER_CONFIG.apiKey || FALLBACK_PROVIDER_CONFIG.apiKey);
 
 const buildRealtimeTemporalContext = (timezone = "America/Argentina/Buenos_Aires") => {
   const now = new Date();
@@ -142,13 +244,458 @@ const getLastCancelledContext = (operatorPhone) => {
   return saved;
 };
 
-const createModel = () => {
-  return new ChatGoogleGenerativeAI({
-    apiKey: GEMINI_API_KEY,
-    model: GEMINI_MODEL,
-    temperature: 0,
-    maxRetries: 2,
+const getConfiguredProviders = () => {
+  const providers = [];
+
+  if (PRIMARY_PROVIDER_CONFIG.apiKey) {
+    providers.push(PRIMARY_PROVIDER_CONFIG);
+  }
+
+  if (FALLBACK_PROVIDER_CONFIG.apiKey) {
+    providers.push(FALLBACK_PROVIDER_CONFIG);
+  }
+
+  return providers;
+};
+
+const stringifyMessageContent = (content) => {
+  if (typeof content === "string") {
+    return content;
+  }
+
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        if (typeof part === "string") return part;
+        if (part?.text) return String(part.text);
+        return "";
+      })
+      .join("\n")
+      .trim();
+  }
+
+  if (content == null) {
+    return "";
+  }
+
+  if (typeof content === "object" && typeof content.text === "string") {
+    return content.text;
+  }
+
+  return String(content);
+};
+
+const toOpenAIChatMessage = (message) => {
+  const type = message?._getType?.();
+  const content = stringifyMessageContent(message?.content);
+
+  if (type === "system") {
+    return { role: "system", content };
+  }
+
+  if (type === "human") {
+    return { role: "user", content };
+  }
+
+  if (type === "tool") {
+    return {
+      role: "tool",
+      tool_call_id: message.tool_call_id,
+      content,
+    };
+  }
+
+  if (type === "ai") {
+    const toolCalls = Array.isArray(message.tool_calls)
+      ? message.tool_calls
+        .filter((toolCall) => toolCall?.name)
+        .map((toolCall, index) => ({
+          id: toolCall.id || `tool_call_${index + 1}`,
+          type: "function",
+          function: {
+            name: toolCall.name,
+            arguments: JSON.stringify(toolCall.args || {}),
+          },
+        }))
+      : undefined;
+
+    return {
+      role: "assistant",
+      content,
+      ...(toolCalls?.length ? { tool_calls: toolCalls } : {}),
+    };
+  }
+
+  return { role: "user", content };
+};
+
+const safeParseToolArgs = (rawArgs) => {
+  if (!rawArgs) return {};
+  try {
+    return JSON.parse(rawArgs);
+  } catch (error) {
+    return {
+      __raw: rawArgs,
+      __parseError: error.message,
+    };
+  }
+};
+
+const INLINE_TOOLCALL_REGEX = /TOOLCALL>\s*([\s\S]*?)\s*<CALL>/gi;
+
+const parseInlineToolCallsFromContent = (content) => {
+  const rawContent = String(content || "");
+  const toolCalls = [];
+  const invalidToolCalls = [];
+  let cleanContent = rawContent;
+  let sequence = 0;
+
+  cleanContent = cleanContent.replace(INLINE_TOOLCALL_REGEX, (_, payload) => {
+    sequence += 1;
+
+    try {
+      const parsed = JSON.parse(String(payload || "").trim());
+      const calls = Array.isArray(parsed) ? parsed : [parsed];
+
+      for (const call of calls) {
+        const name = String(call?.name || "").trim();
+        if (!name) {
+          invalidToolCalls.push({
+            id: `inline_tool_call_${sequence}`,
+            args: JSON.stringify(call || {}),
+            error: "Tool call inline sin nombre.",
+          });
+          continue;
+        }
+
+        const args =
+          typeof call?.arguments === "string"
+            ? safeParseToolArgs(call.arguments)
+            : call?.arguments && typeof call.arguments === "object"
+              ? call.arguments
+              : {};
+
+        if (args?.__parseError) {
+          invalidToolCalls.push({
+            id: `inline_tool_call_${sequence}`,
+            name,
+            args: call.arguments,
+            error: args.__parseError,
+          });
+          continue;
+        }
+
+        toolCalls.push({
+          id: `inline_tool_call_${sequence}_${toolCalls.length + 1}`,
+          name,
+          args,
+        });
+      }
+    } catch (error) {
+      invalidToolCalls.push({
+        id: `inline_tool_call_${sequence}`,
+        args: String(payload || "").trim(),
+        error: error.message,
+      });
+    }
+
+    return "";
   });
+
+  return {
+    content: cleanContent.trim(),
+    toolCalls,
+    invalidToolCalls,
+  };
+};
+
+const sanitizeAssistantReply = (content) => {
+  const raw = String(content || "");
+  if (!raw) return "";
+
+  return raw
+    .replace(INLINE_TOOLCALL_REGEX, "")
+    .replace(/TOOLCALL>\s*/gi, "")
+    .replace(/\s*<CALL>/gi, "")
+    .trim();
+};
+
+const extractAssistantReplyFromMessages = (messages = []) => {
+  const lastAI = [...(Array.isArray(messages) ? messages : [])]
+    .reverse()
+    .find((message) => isAIMessage(message) && !message.tool_calls?.length);
+
+  if (!lastAI) {
+    return {
+      lastAI: null,
+      rawReply: "",
+      reply: "",
+    };
+  }
+
+  const rawReply = typeof lastAI.content === "string"
+    ? lastAI.content.trim()
+    : Array.isArray(lastAI.content)
+      ? lastAI.content.map((part) => (typeof part === "string" ? part : part?.text || "")).join("\n").trim()
+      : "";
+
+  return {
+    lastAI,
+    rawReply,
+    reply: sanitizeAssistantReply(rawReply),
+  };
+};
+
+const normalizeAssistantText = (value) =>
+  String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[!?.,;:()[\]{}"']/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const isClosingOnlyMessage = (value) => {
+  const normalized = normalizeAssistantText(value);
+  if (!normalized) return false;
+
+  const blockingKeywords = [
+    "turno",
+    "reserv",
+    "cancel",
+    "reprogram",
+    "cambiar",
+    "mover",
+    "horario",
+    "fecha",
+    "manana",
+    "hoy",
+    "pasado",
+    "viernes",
+    "lunes",
+    "martes",
+    "miercoles",
+    "jueves",
+    "sabado",
+    "domingo",
+    "quiero",
+    "necesito",
+    "puedo",
+    "consulta",
+    "pregunta",
+  ];
+
+  if (blockingKeywords.some((keyword) => normalized.includes(keyword))) {
+    return false;
+  }
+
+  const words = normalized.split(" ").filter(Boolean);
+  if (!words.length || words.length > 8) return false;
+
+  const closingPhrases = [
+    "gracias",
+    "muchas gracias",
+    "genial",
+    "perfecto",
+    "perfecta",
+    "ok",
+    "oka",
+    "okey",
+    "oki",
+    "dale",
+    "joya",
+    "buenisimo",
+    "buenisima",
+    "hola",
+    "holi",
+    "buen dia",
+    "buenas",
+    "saludos",
+    "saludo",
+    "listo",
+    "lista",
+    "barbaro",
+    "barbara",
+    "excelente",
+    "nos vemos",
+    "chau",
+    "hasta luego",
+    "hasta manana",
+    "abrazo",
+  ];
+
+  return closingPhrases.some((phrase) => normalized.includes(phrase));
+};
+
+const looksLikeAppointmentConfirmation = (value) => {
+  const normalized = normalizeAssistantText(value);
+  if (!normalized) return false;
+
+  const confirmationPhrases = [
+    "turno confirmado",
+    "turno reservado",
+    "te reserve el turno",
+    "te reservamos el turno",
+    "quedo confirmado",
+    "quedo reservado",
+    "reserva confirmada",
+    "listo te reserve",
+    "listo te agende",
+    "agende el turno",
+    "reserve el turno",
+  ];
+
+  return confirmationPhrases.some((phrase) => normalized.includes(phrase));
+};
+
+const APPOINTMENT_CONFIRMATION_CLOSING = "Cualquier consulta, no dudes en llamarme";
+const NON_REPLY_MARKERS = new Set([
+  "no response",
+  "sin respuesta",
+  "no_reply",
+]);
+
+const ensureAppointmentConfirmationClosing = (value) => {
+  const reply = String(value || "").trim();
+  if (!reply || !looksLikeAppointmentConfirmation(reply)) {
+    return reply;
+  }
+
+  const normalizedReply = normalizeAssistantText(reply);
+  const normalizedClosing = normalizeAssistantText(APPOINTMENT_CONFIRMATION_CLOSING);
+  if (normalizedReply.includes(normalizedClosing)) {
+    return reply;
+  }
+
+  const separator = /[.!?]$/.test(reply) ? " " : ". ";
+  return `${reply}${separator}${APPOINTMENT_CONFIRMATION_CLOSING}`;
+};
+
+const sanitizeNonReplyOutput = (value) => {
+  const reply = String(value || "").trim();
+  if (!reply) return "";
+
+  return NON_REPLY_MARKERS.has(normalizeAssistantText(reply)) ? "" : reply;
+};
+
+const shouldSilenceClosingReply = ({ history = [], incomingText = "" }) => {
+  if (!isClosingOnlyMessage(incomingText)) {
+    return false;
+  }
+
+  const { reply } = extractAssistantReplyFromMessages(history);
+  return looksLikeAppointmentConfirmation(reply);
+};
+
+const toLangChainAIMessage = (responseData) => {
+  const choice = responseData?.choices?.[0]?.message || {};
+  const toolCalls = [];
+  const invalidToolCalls = [];
+
+  for (const toolCall of choice.tool_calls || []) {
+    const name = toolCall?.function?.name;
+    const argsText = toolCall?.function?.arguments || "{}";
+
+    if (!name) {
+      invalidToolCalls.push({
+        id: toolCall?.id,
+        args: argsText,
+        error: "Tool call sin nombre.",
+      });
+      continue;
+    }
+
+    const parsedArgs = safeParseToolArgs(argsText);
+    if (parsedArgs?.__parseError) {
+      invalidToolCalls.push({
+        id: toolCall?.id,
+        name,
+        args: argsText,
+        error: parsedArgs.__parseError,
+      });
+      continue;
+    }
+
+    toolCalls.push({
+      id: toolCall?.id,
+      name,
+      args: parsedArgs,
+    });
+  }
+
+  const inlineToolData = parseInlineToolCallsFromContent(choice.content || "");
+  toolCalls.push(...inlineToolData.toolCalls);
+  invalidToolCalls.push(...inlineToolData.invalidToolCalls);
+
+  return new AIMessage({
+    content: inlineToolData.content,
+    tool_calls: toolCalls,
+    invalid_tool_calls: invalidToolCalls,
+    response_metadata: {
+      provider: responseData?.provider || null,
+      model: responseData?.model || null,
+      finish_reason: responseData?.choices?.[0]?.finish_reason || null,
+    },
+    usage_metadata: responseData?.usage
+      ? {
+        input_tokens: responseData.usage.prompt_tokens || 0,
+        output_tokens: responseData.usage.completion_tokens || 0,
+        total_tokens: responseData.usage.total_tokens || 0,
+      }
+      : undefined,
+  });
+};
+
+const buildProviderHeaders = (provider) => {
+  const headers = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${provider.apiKey}`,
+  };
+
+  if (provider.name === "openrouter") {
+    headers["X-Title"] = process.env.OPENROUTER_APP_NAME || "CitaxAPI";
+    if (process.env.OPENROUTER_HTTP_REFERER) {
+      headers["HTTP-Referer"] = process.env.OPENROUTER_HTTP_REFERER;
+    }
+  }
+
+  return headers;
+};
+
+const createModel = (provider) => {
+  return {
+    bindTools(toolDefinitions = []) {
+      return {
+        invoke: async (messages) => {
+          const payload = {
+            model: provider.model,
+            messages: messages.map(toOpenAIChatMessage),
+            temperature: LLM_TEMPERATURE,
+            max_tokens: LLM_MAX_TOKENS,
+          };
+
+          if (toolDefinitions.length) {
+            payload.tools = toolDefinitions;
+            payload.tool_choice = "auto";
+          }
+
+          const response = await axios.post(
+            `${String(provider.baseUrl || "").replace(/\/$/, "")}/chat/completions`,
+            payload,
+            {
+              headers: buildProviderHeaders(provider),
+              timeout: LLM_REQUEST_TIMEOUT_MS,
+            }
+          );
+
+          return toLangChainAIMessage({
+            ...response.data,
+            provider: provider.label,
+          });
+        },
+      };
+    },
+  };
 };
 
 const resolvePreferredContactName = (rawName) => {
@@ -170,7 +717,7 @@ const createTools = ({ companyContext, customerPhone }) => {
             services: p.services,
             // Solo proveemos metadata principal.
             // Para conocer la disponibilidad real, Gemini DEBE llamar a find_available_slots.
-            requisito: "Para saber si este prestador atiende un día u horario, DEBES usar obligatoriamente la herramienta find_available_slots. NO asumas ningún horario comercial."
+            requisito: "Para saber si este prestador atiende un dÃ­a u horario, DEBES usar obligatoriamente la herramienta find_available_slots. NO asumas ningÃºn horario comercial."
           })),
           services: companyContext.services,
         });
@@ -182,25 +729,36 @@ const createTools = ({ companyContext, customerPhone }) => {
       }
     ),
     tool(
-      async ({ professionalName, startDate, endDate, limit }) => {
+      async ({ professionalName, serviceId, startDate, endDate, limit }) => {
         const slots = await listAvailableSlots({
           companyId: companyContext.companyId,
           professionalName,
+          serviceId: serviceId || null,
           startDate,
           endDate,
           referenceDate: companyContext.currentDate,
           limit: limit || 30,
         });
-        return JSON.stringify({ slots });
+        const groupedSlots = summarizeAvailableSlotsForAssistant({
+          slots,
+          referenceDate: companyContext.currentDate,
+          timezone: companyContext.timezone,
+        });
+        return JSON.stringify({
+          groupedSlots,
+          rules:
+            "UsÃ¡ solamente estos prestadores y estos horarios. Si displayMode es 'range', resumÃ­ como rango. Si es 'list', podÃ©s enumerar los horarios. Si un prestador no aparece acÃ¡, no lo ofrezcas.",
+        });
       },
       {
         name: "find_available_slots",
         description: "Busca horarios disponibles para un prestador en un rango de fechas.",
         schema: z.object({
           professionalName: z.string().optional().describe("Nombre del prestador."),
+          serviceId: z.number().optional().describe("ID del servicio para respetar la duracion real."),
           startDate: z.string().optional().describe("Fecha desde (YYYY-MM-DD)."),
           endDate: z.string().optional().describe("Fecha hasta (YYYY-MM-DD)."),
-          limit: z.number().optional().default(30).describe("Máximo de resultados (1-40)."),
+          limit: z.number().optional().default(30).describe("MÃ¡ximo de resultados (1-40)."),
         }),
       }
     ),
@@ -216,13 +774,22 @@ const createTools = ({ companyContext, customerPhone }) => {
           time,
           referenceDate: companyContext.currentDate,
         });
-        return JSON.stringify({ appointment });
+        return JSON.stringify({
+          appointment: {
+            ...appointment,
+            humanDate: formatNaturalDate({
+              date: appointment.date,
+              referenceDate: companyContext.currentDate,
+              timezone: companyContext.timezone,
+            }),
+          },
+        });
       },
       {
         name: "create_appointment",
-        description: "Crea un turno confirmado. Solo usar cuando el cliente ya confirmó.",
+        description: "Crea un turno confirmado. Solo usar cuando el cliente ya confirmÃ³.",
         schema: z.object({
-          clientName: z.string().describe("Nombre del cliente (mínimo 3 caracteres)."),
+          clientName: z.string().describe("Nombre del cliente (mÃ­nimo 3 caracteres)."),
           professionalId: z.number().describe("ID del prestador."),
           serviceId: z.number().optional().describe("ID del servicio (si se omite se usa el primero disponible)."),
           date: z.string().describe("Fecha del turno (YYYY-MM-DD)."),
@@ -241,7 +808,7 @@ const createTools = ({ companyContext, customerPhone }) => {
       },
       {
         name: "get_appointments_by_day",
-        description: "Lista los turnos reservados para un día específico.",
+        description: "Lista los turnos reservados para un dÃ­a especÃ­fico.",
         schema: z.object({
           date: z.string().optional().describe("Fecha a consultar (YYYY-MM-DD)."),
         }),
@@ -258,7 +825,7 @@ const createTools = ({ companyContext, customerPhone }) => {
         });
 
         if (result.status === "multiple_found") {
-          return `Encontré varios turnos. ¿Cuál querés cancelar?\n${result.appointments.map((a) => `- ${a.date} a las ${a.time}`).join("\n")}`;
+          return `EncontrÃ© varios turnos. Â¿CuÃ¡l querÃ©s cancelar?\n${result.appointments.map((a) => `- ${a.date} a las ${a.time}`).join("\n")}`;
         }
         return `Turno del ${result.date} a las ${result.time} cancelado exitosamente.`;
       },
@@ -280,7 +847,7 @@ const createSupportTools = ({ customerPhone, supportState }) => {
       async ({ email, password }) => {
         const authResult = await authenticateCompanyUser({ email, password });
         if (!authResult) {
-          return JSON.stringify({ success: false, error: "Credenciales inválidas." });
+          return JSON.stringify({ success: false, error: "Credenciales invÃ¡lidas." });
         }
         await setSupportSession({
           customerPhone,
@@ -298,33 +865,44 @@ const createSupportTools = ({ customerPhone, supportState }) => {
       },
       {
         name: "login_empresa",
-        description: "Valida email y contraseña de empresa para asociar esta conversación.",
+        description: "Valida email y contraseÃ±a de empresa para asociar esta conversaciÃ³n.",
         schema: z.object({
           email: z.string().describe("Email de acceso de la empresa."),
-          password: z.string().describe("Contraseña de acceso de la empresa."),
+          password: z.string().describe("ContraseÃ±a de acceso de la empresa."),
         }),
       }
     ),
     tool(
-      async ({ professionalName, startDate, endDate, limit }) => {
+      async ({ professionalName, serviceId, startDate, endDate, limit }) => {
         if (!supportState.companyId) {
-          throw new Error("Primero ejecutá login_empresa.");
+          throw new Error("Primero ejecutÃ¡ login_empresa.");
         }
         const slots = await listAvailableSlots({
           companyId: supportState.companyId,
           professionalName,
+          serviceId: serviceId || null,
           startDate,
           endDate,
           referenceDate: new Date().toISOString().slice(0, 10),
           limit: limit || 30,
         });
-        return JSON.stringify({ slots });
+        const groupedSlots = summarizeAvailableSlotsForAssistant({
+          slots,
+          referenceDate: new Date().toISOString().slice(0, 10),
+          timezone: "America/Argentina/Buenos_Aires",
+        });
+        return JSON.stringify({
+          groupedSlots,
+          rules:
+            "UsÃ¡ solamente estos prestadores y estos horarios. Si displayMode es 'range', resumÃ­ como rango. Si es 'list', podÃ©s enumerar los horarios. Si un prestador no aparece acÃ¡, no lo ofrezcas.",
+        });
       },
       {
         name: "find_available_slots",
         description: "Busca horarios disponibles de la empresa autenticada.",
         schema: z.object({
           professionalName: z.string().optional(),
+          serviceId: z.number().optional(),
           startDate: z.string().optional(),
           endDate: z.string().optional(),
           limit: z.number().optional().default(30),
@@ -334,7 +912,7 @@ const createSupportTools = ({ customerPhone, supportState }) => {
     tool(
       async ({ clientName, professionalId, serviceId, date, time }) => {
         if (!supportState.companyId) {
-          throw new Error("Primero ejecutá login_empresa.");
+          throw new Error("Primero ejecutÃ¡ login_empresa.");
         }
         const appointment = await createAppointmentFromAssistant({
           companyId: supportState.companyId,
@@ -346,7 +924,16 @@ const createSupportTools = ({ customerPhone, supportState }) => {
           time,
           referenceDate: new Date().toISOString().slice(0, 10),
         });
-        return JSON.stringify({ appointment });
+        return JSON.stringify({
+          appointment: {
+            ...appointment,
+            humanDate: formatNaturalDate({
+              date: appointment.date,
+              referenceDate: new Date().toISOString().slice(0, 10),
+              timezone: "America/Argentina/Buenos_Aires",
+            }),
+          },
+        });
       },
       {
         name: "create_appointment",
@@ -363,7 +950,7 @@ const createSupportTools = ({ customerPhone, supportState }) => {
     tool(
       async ({ date }) => {
         if (!supportState.companyId) {
-          throw new Error("Primero ejecutá login_empresa.");
+          throw new Error("Primero ejecutÃ¡ login_empresa.");
         }
         const appointments = await listAppointmentsByDay({
           companyId: supportState.companyId,
@@ -374,14 +961,14 @@ const createSupportTools = ({ customerPhone, supportState }) => {
       },
       {
         name: "get_appointments_by_day",
-        description: "Lista turnos del día de la empresa autenticada.",
+        description: "Lista turnos del dÃ­a de la empresa autenticada.",
         schema: z.object({ date: z.string().optional() }),
       }
     ),
     tool(
       async ({ date, time, professionalName, clientName }) => {
         if (!supportState.companyId) {
-          throw new Error("Primero ejecutá login_empresa.");
+          throw new Error("Primero ejecutÃ¡ login_empresa.");
         }
         const result = await cancelAppointmentByCompanyFromAssistant({
           companyId: supportState.companyId,
@@ -410,8 +997,7 @@ const createSupportTools = ({ customerPhone, supportState }) => {
         schema: z.object({
           date: z.string().optional(),
           time: z.string().optional(),
-          professionalName: z.string().optional(),
-          clientName: z.string().optional(),
+                    serviceId: z.number().optional(),          clientName: z.string().optional(),
         }),
       }
     ),
@@ -428,7 +1014,7 @@ const createSupportTools = ({ customerPhone, supportState }) => {
         if (!targetPhone) {
           return JSON.stringify({
             success: false,
-            error: "No encontré un teléfono destino para avisar (cliente cancelado o SUPPORT_NOTIFY_PHONE).",
+            error: "No encontrÃ© un telÃ©fono destino para avisar (cliente cancelado o SUPPORT_NOTIFY_PHONE).",
           });
         }
         const resolvedDate = date || last.date || "sin fecha";
@@ -436,7 +1022,7 @@ const createSupportTools = ({ customerPhone, supportState }) => {
         const resolvedProfessional = professionalName || last.professionalName || "";
         const resolvedClient = clientName || last.clientName || "";
 
-        const text = `Aviso de cancelación: ${supportState.companyName || "Empresa"} canceló un turno (${resolvedDate} ${resolvedTime})${resolvedProfessional ? `, profesional: ${resolvedProfessional}` : ""}${resolvedClient ? `, cliente: ${resolvedClient}` : ""}.`;
+        const text = `Aviso de cancelaciÃ³n: ${supportState.companyName || "Empresa"} cancelÃ³ un turno (${resolvedDate} ${resolvedTime})${resolvedProfessional ? `, profesional: ${resolvedProfessional}` : ""}${resolvedClient ? `, cliente: ${resolvedClient}` : ""}.`;
 
         if (!supportState.companyId) {
           throw new Error("No hay una cuenta de empresa autenticada para enviar el aviso.");
@@ -447,7 +1033,7 @@ const createSupportTools = ({ customerPhone, supportState }) => {
 
         try {
           const res = await sendTextMessage(targetPhone, text, companyInstanceName);
-          console.log("✅ Aviso de cancelación enviado", {
+          console.log("âœ… Aviso de cancelaciÃ³n enviado", {
             to: targetPhone,
             company: supportState.companyName || supportState.companyId,
             viaInstance: companyInstanceName
@@ -456,9 +1042,9 @@ const createSupportTools = ({ customerPhone, supportState }) => {
         } catch (error) {
           const details = error.response?.data || null;
           console.error(`\n==============================================`);
-          console.error("❌ ERROR CRÍTICO - enviando aviso de cancelación al cliente");
+          console.error("âŒ ERROR CRÃTICO - enviando aviso de cancelaciÃ³n al cliente");
           console.error("  Desde instancia de la empresa:", companyInstanceName);
-          console.error("  Teléfono destino:", targetPhone);
+          console.error("  TelÃ©fono destino:", targetPhone);
           console.error("  Texto:", text);
           console.error("  Status HTTP:", error.response?.status || 'N/A');
           console.error("  Mensaje error NATIVO:", error.message);
@@ -477,169 +1063,203 @@ const createSupportTools = ({ customerPhone, supportState }) => {
       },
       {
         name: "notify_cancellation_contact",
-        description: "Envía aviso al contacto de notificación cuando se confirma una cancelación.",
+        description: "EnvÃ­a aviso al contacto de notificaciÃ³n cuando se confirma una cancelaciÃ³n.",
         schema: z.object({
           date: z.string().optional(),
           time: z.string().optional(),
-          professionalName: z.string().optional(),
-          clientName: z.string().optional(),
-          phone: z.string().optional().describe("Teléfono destino opcional; si no se envía, usa el cliente cancelado."),
+                    serviceId: z.number().optional(),          clientName: z.string().optional(),
+          phone: z.string().optional().describe("TelÃ©fono destino opcional; si no se envÃ­a, usa el cliente cancelado."),
         }),
       }
     ),
   ];
 };
 
-// ─── Native Gemini tool declarations (required for gemini-3.1-flash-lite-preview) ───
-const getGeminiToolDeclarations = () => {
-  return [
-    {
-      functionDeclarations: [
-        {
-          name: "login_empresa",
-          description: "Valida email y contraseña de empresa para asociar esta conversación.",
-          parameters: {
-            type: "object",
-            properties: {
-              email: {
-                type: "string",
-                description: "Email de acceso de la empresa.",
-              },
-              password: {
-                type: "string",
-                description: "Contraseña de acceso de la empresa.",
-              },
-            },
-            required: ["email", "password"],
+// â”€â”€â”€ OpenAI-compatible tool definitions for Groq / OpenRouter â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+const TOOL_DEFINITIONS_BY_NAME = {
+  login_empresa: {
+    type: "function",
+    function: {
+      name: "login_empresa",
+      description: "Valida email y contraseÃ±a de empresa para asociar esta conversaciÃ³n.",
+      parameters: {
+        type: "object",
+        properties: {
+          email: {
+            type: "string",
+            description: "Email de acceso de la empresa.",
+          },
+          password: {
+            type: "string",
+            description: "ContraseÃ±a de acceso de la empresa.",
           },
         },
-        {
-          name: "get_company_context",
-          description: "Devuelve el contexto del negocio: prestadores, servicios y datos.",
-          parameters: {
-            type: "object",
-            properties: {},
-            required: [],
-          },
-        },
-        {
-          name: "find_available_slots",
-          description: "Busca horarios disponibles para un prestador en un rango de fechas.",
-          parameters: {
-            type: "object",
-            properties: {
-              professionalName: {
-                type: "string",
-                description: "Nombre del prestador.",
-              },
-              startDate: {
-                type: "string",
-                description: "Fecha desde en formato YYYY-MM-DD.",
-              },
-              endDate: {
-                type: "string",
-                description: "Fecha hasta en formato YYYY-MM-DD.",
-              },
-              limit: {
-                type: "number",
-                description: "Máximo de resultados (1-40).",
-              },
-            },
-            required: [],
-          },
-        },
-        {
-          name: "create_appointment",
-          description: "Crea un turno confirmado. Solo usar cuando el cliente ya confirmó.",
-          parameters: {
-            type: "object",
-            properties: {
-              clientName: {
-                type: "string",
-                description: "Nombre del cliente (mínimo 3 caracteres).",
-              },
-              professionalId: {
-                type: "number",
-                description: "ID del prestador.",
-              },
-              serviceId: {
-                type: "number",
-                description: "ID del servicio (si se omite se usa el primero disponible).",
-              },
-              date: {
-                type: "string",
-                description: "Fecha del turno (YYYY-MM-DD).",
-              },
-              time: {
-                type: "string",
-                description: "Hora de inicio (HH:mm).",
-              },
-            },
-            required: ["clientName", "professionalId", "date", "time"],
-          },
-        },
-        {
-          name: "get_appointments_by_day",
-          description: "Lista los turnos reservados para un día específico.",
-          parameters: {
-            type: "object",
-            properties: {
-              date: {
-                type: "string",
-                description: "Fecha a consultar en formato YYYY-MM-DD.",
-              },
-            },
-            required: [],
-          },
-        },
-        {
-          name: "cancel_appointment",
-          description: "Cancela un turno existente.",
-          parameters: {
-            type: "object",
-            properties: {
-              date: {
-                type: "string",
-                description: "Fecha del turno (YYYY-MM-DD).",
-              },
-              time: {
-                type: "string",
-                description: "Hora del turno (HH:mm).",
-              },
-              professionalName: {
-                type: "string",
-                description: "Nombre del profesional.",
-              },
-              clientName: {
-                type: "string",
-                description: "Nombre del cliente.",
-              },
-            },
-            required: [],
-          },
-        },
-        {
-          name: "notify_cancellation_contact",
-          description: "Envía aviso al contacto configurado sobre una cancelación confirmada.",
-          parameters: {
-            type: "object",
-            properties: {
-              date: { type: "string" },
-              time: { type: "string" },
-              professionalName: { type: "string" },
-              clientName: { type: "string" },
-              phone: { type: "string" },
-            },
-            required: [],
-          },
-        },
-      ],
+        required: ["email", "password"],
+      },
     },
-  ];
+  },
+  get_company_context: {
+    type: "function",
+    function: {
+      name: "get_company_context",
+      description: "Devuelve el contexto del negocio: prestadores, servicios y datos.",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: [],
+      },
+    },
+  },
+  find_available_slots: {
+    type: "function",
+    function: {
+      name: "find_available_slots",
+      description: "Busca horarios disponibles para un prestador en un rango de fechas.",
+      parameters: {
+        type: "object",
+        properties: {
+          professionalName: {
+            type: "string",
+            description: "Nombre del prestador.",
+          },
+          serviceId: {
+            type: "number",
+            description: "ID del servicio para respetar la duracion real.",
+          },
+          startDate: {
+            type: "string",
+            description: "Fecha desde en formato YYYY-MM-DD.",
+          },
+          endDate: {
+            type: "string",
+            description: "Fecha hasta en formato YYYY-MM-DD.",
+          },
+          limit: {
+            type: "number",
+            description: "MÃ¡ximo de resultados (1-40).",
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  create_appointment: {
+    type: "function",
+    function: {
+      name: "create_appointment",
+      description: "Crea un turno confirmado. Solo usar cuando el cliente ya confirmÃ³.",
+      parameters: {
+        type: "object",
+        properties: {
+          clientName: {
+            type: "string",
+            description: "Nombre del cliente (mÃ­nimo 3 caracteres).",
+          },
+          professionalId: {
+            type: "number",
+            description: "ID del prestador.",
+          },
+          serviceId: {
+            type: "number",
+            description: "ID del servicio (si se omite se usa el primero disponible).",
+          },
+          date: {
+            type: "string",
+            description: "Fecha del turno (YYYY-MM-DD).",
+          },
+          time: {
+            type: "string",
+            description: "Hora de inicio (HH:mm).",
+          },
+        },
+        required: ["clientName", "professionalId", "date", "time"],
+      },
+    },
+  },
+  get_appointments_by_day: {
+    type: "function",
+    function: {
+      name: "get_appointments_by_day",
+      description: "Lista los turnos reservados para un dÃ­a especÃ­fico.",
+      parameters: {
+        type: "object",
+        properties: {
+          date: {
+            type: "string",
+            description: "Fecha a consultar en formato YYYY-MM-DD.",
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  cancel_appointment: {
+    type: "function",
+    function: {
+      name: "cancel_appointment",
+      description: "Cancela un turno existente.",
+      parameters: {
+        type: "object",
+        properties: {
+          date: {
+            type: "string",
+            description: "Fecha del turno (YYYY-MM-DD).",
+          },
+          time: {
+            type: "string",
+            description: "Hora del turno (HH:mm).",
+          },
+          professionalName: {
+            type: "string",
+            description: "Nombre del profesional.",
+          },
+          clientName: {
+            type: "string",
+            description: "Nombre del cliente.",
+          },
+          phone: {
+            type: "string",
+            description: "TelÃ©fono destino opcional para avisos.",
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  notify_cancellation_contact: {
+    type: "function",
+    function: {
+      name: "notify_cancellation_contact",
+      description: "EnvÃ­a aviso al contacto configurado sobre una cancelaciÃ³n confirmada.",
+      parameters: {
+        type: "object",
+        properties: {
+          date: { type: "string" },
+          time: { type: "string" },
+          professionalName: { type: "string" },
+          clientName: { type: "string" },
+          phone: { type: "string" },
+        },
+        required: [],
+      },
+    },
+  },
 };
 
-const createGraph = (tools) => {
-  const modelWithTools = createModel().bindTools(getGeminiToolDeclarations());
+const getToolDefinitions = (tools) => {
+  const names = new Set(
+    (tools || [])
+      .map((candidate) => candidate?.name)
+      .filter(Boolean)
+  );
+
+  return [...names]
+    .map((name) => TOOL_DEFINITIONS_BY_NAME[name])
+    .filter(Boolean);
+};
+
+const createGraph = ({ provider, tools }) => {
+  const modelWithTools = createModel(provider).bindTools(getToolDefinitions(tools));
   const toolNode = new ToolNode(tools);
 
   const callModel = async (state) => {
@@ -656,11 +1276,41 @@ const createGraph = (tools) => {
     .compile();
 };
 
+const invokeGraphWithFallback = async ({ tools, messages }) => {
+  const providers = getConfiguredProviders();
+  let lastError = null;
+
+  for (const provider of providers) {
+    try {
+      const graph = createGraph({ provider, tools });
+      const result = await graph.invoke({ messages });
+      const { reply } = extractAssistantReplyFromMessages(result.messages);
+
+      if (!reply) {
+        const emptyReplyError = new Error("El proveedor terminÃ³ el flujo sin respuesta final.");
+        emptyReplyError.code = "empty_final_reply";
+        throw emptyReplyError;
+      }
+
+      return { result, provider };
+    } catch (error) {
+      lastError = error;
+      console.error(`âŒ Error ejecutando proveedor LLM (${provider.label}):`, {
+        message: error.message,
+        status: error.response?.status,
+        data: error.response?.data || null,
+      });
+    }
+  }
+
+  throw lastError || new Error("No hay proveedores LLM configurados.");
+};
+
 const runWhatsappAssistant = async ({ instanceName, incomingMessage, companyContext: providedContext = null }) => {
   if (!isAssistantConfigured()) {
     return {
       enabled: false,
-      reason: "Gemini no está configurado. Falta GOOGLE_API_KEY o AI está deshabilitado.",
+      reason: "LLM no configurada. DefinÃ­ la API key del proveedor primario o secundario, o deshabilitÃ¡ la IA.",
     };
   }
 
@@ -681,7 +1331,7 @@ const runWhatsappAssistant = async ({ instanceName, incomingMessage, companyCont
     try {
       companyContext = await getCompanyContextByInstanceName(instanceName, customerPhone);
     } catch (error) {
-      console.error("❌ Error cargando contexto:", error.message);
+      console.error("âŒ Error cargando contexto:", error.message);
       return { enabled: false, reason: "Error cargando contexto de la empresa." };
     }
   }
@@ -691,7 +1341,6 @@ const runWhatsappAssistant = async ({ instanceName, incomingMessage, companyCont
   }
 
   const tools = createTools({ companyContext, customerPhone });
-  const graph = createGraph(tools);
   const realtimeContext = buildRealtimeTemporalContext(companyContext.timezone);
   const systemPrompt = buildAssistantPrompt({
     ...companyContext,
@@ -700,15 +1349,23 @@ const runWhatsappAssistant = async ({ instanceName, incomingMessage, companyCont
   });
 
   const preferredName = resolvePreferredContactName(incomingMessage?.pushName);
-  const temporalRef = `Referencia temporal obligatoria: fecha local actual ${realtimeContext.localDate}, hora local ${realtimeContext.localTime}, zona ${realtimeContext.timezone}, timestamp UTC ${realtimeContext.isoUtc}. Usá esta referencia como fuente de verdad para interpretar "hoy", "mañana" y fechas relativas.`;
+  const temporalRef = `Referencia temporal obligatoria: fecha local actual ${realtimeContext.localDate}, hora local ${realtimeContext.localTime}, zona ${realtimeContext.timezone}, timestamp UTC ${realtimeContext.isoUtc}. UsÃ¡ esta referencia como fuente de verdad para interpretar "hoy", "maÃ±ana" y fechas relativas.`;
   const contactRef = preferredName
     ? `Este cliente figura como '${preferredName}' en WhatsApp.`
-    : "No hay nombre de contacto disponible, usá trato neutro.";
-  const phoneRef = `Teléfono del cliente (no lo pidas): ${customerPhone}.`;
+    : "No hay nombre de contacto disponible, usÃ¡ trato neutro.";
+  const phoneRef = `TelÃ©fono del cliente (no lo pidas): ${customerPhone}.`;
 
   const history = getConversationHistory({ instanceName, customerPhone });
-
-  const result = await graph.invoke({
+  if (shouldSilenceClosingReply({ history, incomingText: messageText })) {
+    clearConversationHistory({ instanceName, customerPhone });
+    return {
+      enabled: false,
+      reason: "Cierre conversacional tras confirmacion del turno.",
+      companyContext,
+    };
+  }
+  const { result, provider } = await invokeGraphWithFallback({
+    tools,
     messages: [
       new SystemMessage(`${systemPrompt}\n\n${temporalRef}\n\n${contactRef}\n\n${phoneRef}`),
       ...history,
@@ -716,33 +1373,29 @@ const runWhatsappAssistant = async ({ instanceName, incomingMessage, companyCont
     ],
   });
 
-  console.log("🤖 Graph invoke:", {
+  console.log("ðŸ¤– Graph invoke:", {
     instanceName,
     customerPhone,
+    provider: provider.label,
+    model: provider.model,
     historyLen: history.length,
     resultMessages: result.messages?.length || 0,
   });
 
-  const lastAI = [...result.messages].reverse().find((m) => isAIMessage(m) && !m.tool_calls?.length);
+  const { reply } = extractAssistantReplyFromMessages(result.messages);
+  const finalReply = sanitizeNonReplyOutput(
+    ensureAppointmentConfirmationClosing(reply)
+  );
 
-  let reply = "";
-  if (lastAI) {
-    reply = typeof lastAI.content === "string"
-      ? lastAI.content.trim()
-      : Array.isArray(lastAI.content)
-        ? lastAI.content.map((p) => (typeof p === "string" ? p : p?.text || "")).join("\n").trim()
-        : "";
-  }
-
-  if (!reply) {
-    return { enabled: false, reason: "El asistente decidió no responder.", companyContext };
+  if (!finalReply) {
+    return { enabled: false, reason: "El asistente decidiÃ³ no responder.", companyContext };
   }
 
   setConversationHistory({ instanceName, customerPhone, messages: result.messages });
 
   return {
     enabled: true,
-    text: reply,
+    text: finalReply,
     companyContext,
   };
 };
@@ -767,24 +1420,24 @@ const runSupportAssistant = async ({ incomingMessage }) => {
   };
 
   const tools = createSupportTools({ customerPhone, supportState });
-  const graph = createGraph(tools);
   const history = getConversationHistory({ instanceName: SUPPORT_INSTANCE_NAME, customerPhone });
 
   const realtimeContext = buildRealtimeTemporalContext("America/Argentina/Buenos_Aires");
   const supportPrompt = `Sos el bot de soporte de Citax por WhatsApp.
-Si la conversación no tiene empresa autenticada, pedí email y contraseña de forma clara.
-Cuando tengas email y contraseña, ejecutá la tool login_empresa.
+Si la conversaciÃ³n no tiene empresa autenticada, pedÃ­ email y contraseÃ±a de forma clara.
+Cuando tengas email y contraseÃ±a, ejecutÃ¡ la tool login_empresa.
 No digas que el login fue exitoso sin ejecutar la tool.
-Después del login, podés ayudar con: agendar turno, cancelar turno y ver agenda del día usando tools.
-Cuando canceles un turno y la cancelación sea exitosa, preguntá explícitamente: "¿Querés que le avise al cliente?".
-Si te responden que sí, ejecutá notify_cancellation_contact.
-Primero intentá avisar al cliente del turno cancelado; si no hay teléfono de cliente, usá el contacto general (${SUPPORT_NOTIFY_LABEL}) si está configurado.
-Nunca confirmes que se envió un aviso si la tool devuelve success=false.
-Respondé en español, corto y claro, estilo WhatsApp.
+DespuÃ©s del login, podÃ©s ayudar con: agendar turno, cancelar turno y ver agenda del dÃ­a usando tools.
+Cuando canceles un turno y la cancelaciÃ³n sea exitosa, preguntÃ¡ explÃ­citamente: "Â¿QuerÃ©s que le avise al cliente?".
+Si te responden que sÃ­, ejecutÃ¡ notify_cancellation_contact.
+Primero intentÃ¡ avisar al cliente del turno cancelado; si no hay telÃ©fono de cliente, usÃ¡ el contacto general (${SUPPORT_NOTIFY_LABEL}) si estÃ¡ configurado.
+Nunca confirmes que se enviÃ³ un aviso si la tool devuelve success=false.
+RespondÃ© en espaÃ±ol, corto y claro, estilo WhatsApp.
 Empresa autenticada actual: ${supportState.companyName || "ninguna"}.
 Referencia temporal obligatoria: fecha local actual ${realtimeContext.localDate}, hora local ${realtimeContext.localTime}, zona ${realtimeContext.timezone}, timestamp UTC ${realtimeContext.isoUtc}.`;
 
-  const result = await graph.invoke({
+  const { result, provider } = await invokeGraphWithFallback({
+    tools,
     messages: [
       new SystemMessage(supportPrompt),
       ...history,
@@ -792,14 +1445,15 @@ Referencia temporal obligatoria: fecha local actual ${realtimeContext.localDate}
     ],
   });
 
-  const lastAI = [...result.messages].reverse().find((m) => isAIMessage(m) && !m.tool_calls?.length);
-  const reply = lastAI
-    ? typeof lastAI.content === "string"
-      ? lastAI.content.trim()
-      : Array.isArray(lastAI.content)
-        ? lastAI.content.map((p) => (typeof p === "string" ? p : p?.text || "")).join("\n").trim()
-        : ""
-    : "";
+  console.log("ðŸ¤– Support graph invoke:", {
+    customerPhone,
+    provider: provider.label,
+    model: provider.model,
+    historyLen: history.length,
+    resultMessages: result.messages?.length || 0,
+  });
+
+  const { reply } = extractAssistantReplyFromMessages(result.messages);
 
   if (!reply) return { enabled: false, reason: "Sin respuesta generada." };
 
@@ -820,4 +1474,22 @@ module.exports = {
   isAssistantConfigured,
   runWhatsappAssistant,
   runSupportAssistant,
+  __testables: {
+    getConfiguredProviders,
+    getToolDefinitions,
+    extractAssistantReplyFromMessages,
+    isClosingOnlyMessage,
+    looksLikeAppointmentConfirmation,
+    ensureAppointmentConfirmationClosing,
+    sanitizeNonReplyOutput,
+    shouldSilenceClosingReply,
+    parseInlineToolCallsFromContent,
+    sanitizeAssistantReply,
+    stringifyMessageContent,
+    toOpenAIChatMessage,
+    toLangChainAIMessage,
+  },
 };
+
+
+

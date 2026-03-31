@@ -3,6 +3,10 @@ const router = express.Router();
 const pool = require('../config/db');
 const authMiddleware = require('../middlewares/auth.middleware');
 const { requireRole } = require('../middlewares/role.middleware');
+const {
+    ensureSingleProviderSetup,
+    isSingleProviderModeEnabled,
+} = require('../services/singleProviderMode.service');
 
 router.use(authMiddleware);
 
@@ -27,18 +31,38 @@ router.get('/', async (req, res) => {
 // POST /api/services - Create a new service (admin only)
 router.post('/', requireRole('admin_empresa'), async (req, res) => {
     const { nombre, descripcion, duracion_minutos, precio } = req.body;
+    const connection = await pool.getConnection();
+
     try {
-        const [result] = await pool.execute(
+        await connection.beginTransaction();
+
+        const [result] = await connection.execute(
             'INSERT INTO SERVICIO (id_empresa, nombre, descripcion, duracion_minutos, precio) VALUES (?, ?, ?, ?, ?)',
             [req.user.id_empresa, nombre, descripcion, duracion_minutos, precio]
         );
+
+        if (await isSingleProviderModeEnabled(req.user.id_empresa, connection)) {
+            await ensureSingleProviderSetup({
+                companyId: req.user.id_empresa,
+                executor: connection,
+            });
+        }
+
+        await connection.commit();
         res.status(201).json({
             id_servicio: result.insertId,
             nombre, descripcion, duracion_minutos, precio
         });
     } catch (err) {
+        try {
+            await connection.rollback();
+        } catch (_) {
+            // noop
+        }
         console.error(err);
         res.status(500).json({ error: 'Error al crear servicio' });
+    } finally {
+        connection.release();
     }
 });
 

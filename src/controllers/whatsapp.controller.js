@@ -1,11 +1,13 @@
 const prisma = require("../config/prisma");
 const {
+  buildInstanceName,
   clearLatestQr,
   createInstanceWithQr,
   disconnectInstance,
   getLatestQr,
   getSafeConnectionState,
   normalizeInstanceName,
+  normalizeQrPayload,
   registerWebhook,
   storeLatestQr,
 } = require("../services/evolution.service");
@@ -196,18 +198,20 @@ const handleWebhook = async (req, res, next) => {
 
     res.status(200).json({ received: true });
 
-    const { processIncomingMessage } = require("../services/evolution.service");
-
-    processIncomingMessage({ instanceName, webhookData: payload }).catch((err) => {
-      console.error("Error procesando webhook:", err.message);
-    });
-
     if (payload?.event === "qrcode.updated") {
       storeLatestQr(instanceName, payload);
+      console.log("🔳 QR actualizado:", {
+        instanceName,
+        hasQr: getLatestQr(instanceName)?.source !== "none",
+      });
     }
 
     if (payload?.event === "connection.update") {
       const state = payload?.data?.state || payload?.state || "unknown";
+      console.log("🔌 Estado de conexión WhatsApp:", {
+        instanceName,
+        state,
+      });
       if (state === "open") {
         clearLatestQr(instanceName);
       }
@@ -224,6 +228,15 @@ const handleWebhook = async (req, res, next) => {
       } catch (e) {
         console.error("Error actualizando estado en webhook:", e.message);
       }
+      return;
+    }
+
+    if (payload?.event === "messages.upsert") {
+      const { processIncomingMessage } = require("../services/evolution.service");
+
+      processIncomingMessage({ instanceName, webhookData: payload }).catch((err) => {
+        console.error("Error procesando webhook:", err.message);
+      });
     }
   } catch (error) {
     console.error("❌ Error en handleWebhook:", error.message);

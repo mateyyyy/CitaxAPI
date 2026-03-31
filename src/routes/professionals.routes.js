@@ -4,17 +4,20 @@ const pool = require('../config/db');
 const authMiddleware = require('../middlewares/auth.middleware');
 const { requireRole } = require('../middlewares/role.middleware');
 const bcrypt = require('bcryptjs');
+const { isSingleProviderModeEnabled } = require('../services/singleProviderMode.service');
 
 router.use(authMiddleware);
 
 // GET /api/professionals - List all (existing)
 router.get('/', async (req, res) => {
     try {
+        const singleProviderMode = await isSingleProviderModeEnabled(req.user.id_empresa);
         const query = `
             SELECT p.id_prestador, p.activo, u.id_usuario, u.nombre, u.apellido, u.email
             FROM PRESTADOR p
             JOIN USUARIO u ON p.id_usuario = u.id_usuario
             WHERE p.id_empresa = ?
+            ${singleProviderMode ? 'AND p.activo = 1' : ''}
         `;
         const [rows] = await pool.execute(query, [req.user.id_empresa]);
         
@@ -48,12 +51,15 @@ router.post('/', requireRole('admin_empresa'), async (req, res) => {
     const connection = await pool.getConnection();
 
     try {
+        if (await isSingleProviderModeEnabled(req.user.id_empresa, connection)) {
+            return res.status(409).json({ error: 'La cuenta está en modo prestador único y no permite crear más prestadores.' });
+        }
+
         await connection.beginTransaction();
 
         // Check for duplicate email
         const [existing] = await connection.execute('SELECT id_usuario FROM USUARIO WHERE email = ?', [email]);
         if (existing.length > 0) {
-            connection.release();
             return res.status(409).json({ error: 'Ya existe un usuario con ese email' });
         }
 
@@ -86,6 +92,10 @@ router.post('/', requireRole('admin_empresa'), async (req, res) => {
 router.patch('/:id', requireRole('admin_empresa'), async (req, res) => {
     const { activo } = req.body;
     try {
+        if (await isSingleProviderModeEnabled(req.user.id_empresa)) {
+            return res.status(409).json({ error: 'La cuenta está en modo prestador único y no permite editar prestadores manualmente.' });
+        }
+
         await pool.execute(
             'UPDATE PRESTADOR SET activo = ? WHERE id_prestador = ? AND id_empresa = ?',
             [activo ? 1 : 0, req.params.id, req.user.id_empresa]
@@ -100,6 +110,10 @@ router.patch('/:id', requireRole('admin_empresa'), async (req, res) => {
 router.delete('/:id', requireRole('admin_empresa'), async (req, res) => {
     const connection = await pool.getConnection();
     try {
+        if (await isSingleProviderModeEnabled(req.user.id_empresa, connection)) {
+            return res.status(409).json({ error: 'La cuenta está en modo prestador único y no permite eliminar el prestador principal.' });
+        }
+
         await connection.beginTransaction();
         // Get the user ID first
         const [rows] = await connection.execute(
@@ -107,7 +121,6 @@ router.delete('/:id', requireRole('admin_empresa'), async (req, res) => {
             [req.params.id, req.user.id_empresa]
         );
         if (rows.length === 0) {
-            connection.release();
             return res.status(404).json({ error: 'Prestador no encontrado' });
         }
         const id_usuario = rows[0].id_usuario;
@@ -154,6 +167,10 @@ router.get('/:id/services', async (req, res) => {
 router.post('/:id/services', requireRole('admin_empresa'), async (req, res) => {
     const { id_servicio } = req.body;
     try {
+        if (await isSingleProviderModeEnabled(req.user.id_empresa)) {
+            return res.status(409).json({ error: 'En modo prestador único los servicios se asocian automáticamente.' });
+        }
+
         // Verify service belongs to company
         const [sRows] = await pool.execute('SELECT id_servicio FROM SERVICIO WHERE id_servicio = ? AND id_empresa = ?', [id_servicio, req.user.id_empresa]);
         if (sRows.length === 0) return res.status(403).json({ error: 'Servicio no encontrado o no pertenece a la empresa' });
@@ -172,6 +189,10 @@ router.post('/:id/services', requireRole('admin_empresa'), async (req, res) => {
 // DELETE /api/professionals/:id/services/:serviceId - Unlink a service (admin only)
 router.delete('/:id/services/:serviceId', requireRole('admin_empresa'), async (req, res) => {
     try {
+        if (await isSingleProviderModeEnabled(req.user.id_empresa)) {
+            return res.status(409).json({ error: 'En modo prestador único los servicios se asocian automáticamente.' });
+        }
+
         await pool.execute(
             'DELETE FROM PRESTADOR_SERVICIO WHERE id_prestador = ? AND id_servicio = ?',
             [req.params.id, req.params.serviceId]

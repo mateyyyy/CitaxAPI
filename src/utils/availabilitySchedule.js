@@ -7,8 +7,16 @@ const formatTime = (value) => {
   return text.slice(0, 5);
 };
 
+const isNullishAvailability = (raw) => {
+  if (raw === null || raw === undefined) return true;
+  if (typeof raw !== "string") return false;
+
+  const text = raw.trim().toLowerCase();
+  return text === "" || text === "null";
+};
+
 const parseAvailability = (raw) => {
-  if (raw === null || raw === undefined) return null;
+  if (isNullishAvailability(raw)) return null;
   if (typeof raw === "string") {
     try {
       return JSON.parse(raw);
@@ -20,6 +28,20 @@ const parseAvailability = (raw) => {
   return null;
 };
 
+const normalizeActiveFlag = (value) => {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value === 1;
+
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+
+    if (["1", "true", "si", "sí", "on"].includes(normalized)) return true;
+    if (["0", "false", "no", "off", ""].includes(normalized)) return false;
+  }
+
+  return Boolean(value);
+};
+
 const normalizeAvailabilityItems = (raw) => {
   const parsed = parseAvailability(raw);
   const config = Array.isArray(parsed?.config) ? parsed.config : [];
@@ -29,7 +51,7 @@ const normalizeAvailabilityItems = (raw) => {
       dia_semana: Number(item?.dia_semana),
       hora_desde: formatTime(item?.hora_desde),
       hora_hasta: formatTime(item?.hora_hasta),
-      activo: item?.activo ? 1 : 0,
+      activo: normalizeActiveFlag(item?.activo) ? 1 : 0,
     }))
     .filter((item) => (
       Number.isInteger(item.dia_semana)
@@ -44,7 +66,7 @@ const normalizeAvailabilityItems = (raw) => {
 
 const toAvailabilityPayload = (raw) => ({ config: normalizeAvailabilityItems(raw) });
 
-const hasOwnAvailability = (raw) => parseAvailability(raw) !== null;
+const hasOwnAvailability = (raw) => !isNullishAvailability(raw);
 
 const resolveEffectiveAvailability = ({ ownConfig, companyConfig }) => {
   if (hasOwnAvailability(ownConfig)) {
@@ -94,6 +116,8 @@ module.exports = {
   formatTime,
   parseAvailability,
   hasOwnAvailability,
+  isNullishAvailability,
+  normalizeActiveFlag,
   normalizeAvailabilityItems,
   overlaps,
   pad,
