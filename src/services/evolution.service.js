@@ -1,5 +1,6 @@
 const axios = require("axios");
-const { processAudioMessage } = require("./ai/audioTranscriptionService");
+const { processAudioMessage } = require("./ai/audioTranscriptionGroqService");
+const pool = require("../config/db");
 
 
 const EVOLUTION_API_URL = process.env.EVOLUTION_API_URL || "http://localhost:8080";
@@ -10,6 +11,54 @@ const WHATSAPP_INSTANCE_PREFIX = process.env.WHATSAPP_INSTANCE_PREFIX || "citax"
 const SUPPORT_INSTANCE_NAME = String(process.env.SUPPORT_WHATSAPP_INSTANCE || "citax-support-whatsapp")
   .trim()
   .toLowerCase();
+
+const buildPhoneVariants = (value) => {
+  const digits = String(value || "").replace(/[^\d]/g, "").trim();
+  if (!digits) return [];
+
+  const variants = new Set([digits]);
+
+  if (digits.startsWith("549") && digits.length >= 12) {
+    variants.add(`54${digits.slice(3)}`);
+  }
+
+  if (digits.startsWith("54") && !digits.startsWith("549") && digits.length >= 11) {
+    variants.add(`549${digits.slice(2)}`);
+  }
+
+  return [...variants];
+};
+
+const parseIgnoredPhonesFromBotConfig = (rawConfig) => {
+  try {
+    const parsed = typeof rawConfig === "string" ? JSON.parse(rawConfig || "{}") : (rawConfig || {});
+    const phones = Array.isArray(parsed?.telefonos_ignorados) ? parsed.telefonos_ignorados : [];
+    return new Set(
+      phones.flatMap((phone) => buildPhoneVariants(phone))
+    );
+  } catch (_) {
+    return new Set();
+  }
+};
+
+const getIgnoredPhonesForInstance = async (instanceName) => {
+  try {
+    const [rows] = await pool.execute(
+      `SELECT e.bot_config
+       FROM CONFIG_WHATSAPP cw
+       JOIN EMPRESA e ON e.id_empresa = cw.id_empresa
+       WHERE cw.instance_name = ?
+       LIMIT 1`,
+      [instanceName]
+    );
+
+    if (!rows.length) return new Set();
+    return parseIgnoredPhonesFromBotConfig(rows[0].bot_config);
+  } catch (error) {
+    console.error("Error obteniendo telefonos ignorados:", error.message);
+    return new Set();
+  }
+};
 
 const evolutionClient = axios.create({
   baseURL: EVOLUTION_API_URL,
@@ -354,9 +403,21 @@ const hasProcessableText = (value) => {
     "[audio recibido, pero falló la transcripción]",
     "[audio recibido, pero la transcripción por ia no está configurada]",
     "[audio recibido, pero la transcripcion por ia no esta configurada]",
+    "[audio recibido, pero fallo la transcripcion]",
   ]);
 
   return !placeholders.has(normalized.toLowerCase());
+};
+
+const isAudioTranscriptionPlaceholder = (value) => {
+  const normalized = String(value || "").trim().toLowerCase();
+  return new Set([
+    String(AUDIO_DOWNLOAD_ERROR || "").trim().toLowerCase(),
+    String(AUDIO_TRANSCRIPTION_FAILED || "").trim().toLowerCase(),
+    String(AUDIO_TRANSCRIPTION_NOT_CONFIGURED || "").trim().toLowerCase(),
+    "[audio recibido, pero fallã³ la transcripciã³n]",
+    "[audio recibido, pero la transcripciã³n por ia no estã¡ configurada]",
+  ]).has(normalized);
 };
 
 // ─── Normalize an incoming message ────────────────────────────────────
@@ -425,6 +486,7 @@ const getRecentMessages = (instanceName) => {
 // ─── Process incoming messages (AI pipeline) ──────────────────────────
 const processIncomingMessage = async ({ instanceName, webhookData }) => {
   const messages = extractIncomingMessages(webhookData);
+  const ignoredPhones = await getIgnoredPhonesForInstance(instanceName);
 
   if (!messages.length) {
     console.log("📡 Evento de WhatsApp recibido (sin mensajes):", {
@@ -454,6 +516,14 @@ const processIncomingMessage = async ({ instanceName, webhookData }) => {
     if (normalized.isGroup) { console.log("⏭️ Ignorado: es grupo"); continue; }
     if (normalized.fromMe) { console.log("⏭️ Ignorado: fromMe=true"); continue; }
     if (!normalized.phoneNumber) { console.log("⏭️ Ignorado: sin teléfono"); continue; }
+
+    if (ignoredPhones.has(normalized.phoneNumber)) {
+      console.log("â­ï¸ Ignorado por blacklist:", {
+        instanceName,
+        from: normalized.phoneNumber,
+      });
+      continue;
+    }
 
     // Check connection state
     const connectionState = await getSafeConnectionState(instanceName);
