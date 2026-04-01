@@ -23,11 +23,11 @@ const superadminCredentials = getSuperadminCredentials();
 const SUPERADMIN_EMAIL = superadminCredentials.email;
 const SUPERADMIN_PASSWORD = superadminCredentials.password;
 const SUPERADMIN_SECRET = superadminCredentials.secret;
-const SUPPORT_INSTANCE = normalizeInstanceName(process.env.SUPPORT_WHATSAPP_INSTANCE || "citax-support-whatsapp");
+const SUPPORT_INSTANCE = normalizeInstanceName(superadminCredentials.supportInstance);
 
 if (superadminCredentials.usingDefaults) {
   console.warn(
-    "[superadmin] SUPERADMIN_EMAIL o SUPERADMIN_PASSWORD no estan configurados; usando credenciales por defecto."
+    "[superadmin] No se encontraron credenciales configuradas en SUPERADMIN_EMAIL/SUPERADMIN_USER o SUPERADMIN_PASSWORD/SUPERADMIN_PASS; usando credenciales por defecto."
   );
 }
 
