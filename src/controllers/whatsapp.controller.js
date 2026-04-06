@@ -134,15 +134,11 @@ const getCurrentInstance = async (req, res, next) => {
     const connectionState = await getSafeConnectionState(instanceName);
     const resolvedStatus = connectionState.instance?.state || connectionState.state || "unknown";
 
-<<<<<<< HEAD
     // Forzamos la actualización del Webhook siempre que se consulte el estado.
     // Esto asegura que si el ngrok cambió de URL libre, Evolution API se entere al instante.
-    const { registerWebhook } = require("../services/evolution.service");
     await registerWebhook(instanceName);
 
     // Mantenemos sincronizado el estado
-=======
->>>>>>> master
     await persistWhatsappInstance({
       companyId,
       instanceName,
@@ -312,4 +308,3 @@ module.exports = {
   getMessages,
   sendMessage,
 };
-

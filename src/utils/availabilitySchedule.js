@@ -53,23 +53,6 @@ const normalizeAvailabilityItems = (raw) => {
       hora_hasta: formatTime(item?.hora_hasta),
       activo: normalizeActiveFlag(item?.activo) ? 1 : 0,
     }))
-<<<<<<< HEAD
-    .filter(
-      (item) =>
-        Number.isInteger(item.dia_semana) &&
-        item.dia_semana >= 1 &&
-        item.dia_semana <= 7 &&
-        item.hora_desde &&
-        item.hora_hasta &&
-        item.hora_desde < item.hora_hasta &&
-        item.activo
-    );
-};
-
-const toAvailabilityPayload = (raw) => ({
-  config: normalizeAvailabilityItems(raw),
-});
-=======
     .filter((item) => (
       Number.isInteger(item.dia_semana)
       && item.dia_semana >= 1
@@ -82,7 +65,6 @@ const toAvailabilityPayload = (raw) => ({
 };
 
 const toAvailabilityPayload = (raw) => ({ config: normalizeAvailabilityItems(raw) });
->>>>>>> master
 
 const hasOwnAvailability = (raw) => !isNullishAvailability(raw);
 
@@ -123,17 +105,9 @@ const toWeekdayNumber = (dateStr) => {
   return weekday === 0 ? 7 : weekday;
 };
 
-<<<<<<< HEAD
-const combineDateTime = (dateStr, timeStr) =>
-  new Date(`${dateStr}T${timeStr}:00Z`);
-
-const overlaps = (startA, endA, startB, endB) =>
-  startA < endB && startB < endA;
-=======
 const combineDateTime = (dateStr, timeStr) => new Date(`${dateStr}T${timeStr}:00Z`);
 
 const overlaps = (startA, endA, startB, endB) => startA < endB && startB < endA;
->>>>>>> master
 
 module.exports = {
   addDays,

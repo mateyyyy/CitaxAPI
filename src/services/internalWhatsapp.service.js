@@ -65,13 +65,7 @@ const getIgnoredInternalPhonesForInstance = ({
   companyPhones = new Set(),
 }) => {
   const normalizedCurrentInstance = normalizeInternalInstanceName(currentInstanceName);
-<<<<<<< HEAD
-  const normalizedSupportInstance = normalizeInternalInstanceName(
-    supportInstanceName
-  );
-=======
   const normalizedSupportInstance = normalizeInternalInstanceName(supportInstanceName);
->>>>>>> master
 
   if (!normalizedCurrentInstance) {
     return new Set();

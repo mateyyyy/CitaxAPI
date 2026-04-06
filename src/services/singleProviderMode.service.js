@@ -39,11 +39,7 @@ const normalizeOwnPhrasesConfig = (value) => {
     saludos: sanitizeOwnPhraseSection(value.saludos, "saludos"),
     confirmaciones: sanitizeOwnPhraseSection(
       value.confirmaciones,
-<<<<<<< HEAD
-      "confirmaciones"
-=======
       "confirmaciones",
->>>>>>> master
     ),
     cierres: sanitizeOwnPhraseSection(value.cierres, "cierres"),
   };
@@ -56,37 +52,21 @@ const sanitizeOwnPhrasesPayload = (payload = {}, currentValue = {}) => {
   return {
     general: sanitizeOwnPhraseSection(
       payload.palabras_propias_general ?? incoming.general ?? current.general,
-<<<<<<< HEAD
-      "general"
-    ),
-    saludos: sanitizeOwnPhraseSection(
-      payload.palabras_propias_saludos ?? incoming.saludos ?? current.saludos,
-      "saludos"
-=======
       "general",
     ),
     saludos: sanitizeOwnPhraseSection(
       payload.palabras_propias_saludos ?? incoming.saludos ?? current.saludos,
       "saludos",
->>>>>>> master
     ),
     confirmaciones: sanitizeOwnPhraseSection(
       payload.palabras_propias_confirmaciones ??
         incoming.confirmaciones ??
         current.confirmaciones,
-<<<<<<< HEAD
-      "confirmaciones"
-    ),
-    cierres: sanitizeOwnPhraseSection(
-      payload.palabras_propias_cierres ?? incoming.cierres ?? current.cierres,
-      "cierres"
-=======
       "confirmaciones",
     ),
     cierres: sanitizeOwnPhraseSection(
       payload.palabras_propias_cierres ?? incoming.cierres ?? current.cierres,
       "cierres",
->>>>>>> master
     ),
   };
 };
@@ -98,23 +78,12 @@ const sanitizeIgnoredPhones = (value) => {
         .split(/\r?\n|,|;/)
         .map((item) => item.trim());
 
-<<<<<<< HEAD
-  return [
-    ...new Set(
-      rawItems
-        .map((item) => String(item || "").replace(/[^\d]/g, "").trim())
-        .filter(Boolean)
-        .slice(0, 200)
-    ),
-  ];
-=======
   return [...new Set(
     rawItems
       .map((item) => String(item || "").replace(/[^\d]/g, "").trim())
       .filter(Boolean)
       .slice(0, 200)
   )];
->>>>>>> master
 };
 
 const parseBotConfig = (raw) => {
@@ -176,13 +145,7 @@ const sanitizeBotConfig = (payload = {}, currentConfig = {}) => {
     rubro: toTrimmedString(payload.rubro, 100),
     mensaje_bienvenida: toTrimmedString(payload.mensaje_bienvenida, 200),
     palabras_propias: sanitizeOwnPhrasesPayload(payload, base.palabras_propias),
-<<<<<<< HEAD
-    telefonos_ignorados: sanitizeIgnoredPhones(
-      payload.telefonos_ignorados ?? base.telefonos_ignorados
-    ),
-=======
     telefonos_ignorados: sanitizeIgnoredPhones(payload.telefonos_ignorados ?? base.telefonos_ignorados),
->>>>>>> master
     primera_persona: singleProviderMode || payload.primera_persona === true,
     cuenta_prestador_unico: singleProviderMode,
   };
@@ -236,13 +199,7 @@ const ensureSingleProviderSetup = async ({ companyId, executor = pool }) => {
     [companyId]
   );
 
-<<<<<<< HEAD
-  const activationStatus = getSingleProviderModeActivationStatus(
-    prestadorRows.length
-  );
-=======
   const activationStatus = getSingleProviderModeActivationStatus(prestadorRows.length);
->>>>>>> master
   if (!activationStatus.allowed) {
     throw new Error(activationStatus.reason);
   }
@@ -285,13 +242,7 @@ const ensureSingleProviderSetup = async ({ companyId, executor = pool }) => {
   return {
     professionalId: ownerPrestador.id_prestador,
     userId: ownerPrestador.id_usuario,
-<<<<<<< HEAD
-    name: `${ownerPrestador.nombre || ""} ${
-      ownerPrestador.apellido || ""
-    }`.trim(),
-=======
     name: `${ownerPrestador.nombre || ""} ${ownerPrestador.apellido || ""}`.trim(),
->>>>>>> master
     email: ownerPrestador.email || "",
   };
 };
