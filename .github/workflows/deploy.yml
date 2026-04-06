@@ -34,6 +34,7 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
+            echo ${{ secrets.CR_PAT }} | docker login ghcr.io -u nolasko7 --password-stdin
             docker pull ghcr.io/${{ github.repository_owner }}/citax-backend:latest
             docker stop citax-backend || true
             docker rm citax-backend || true
@@ -43,4 +44,7 @@ jobs:
               --network citax-network \
               -p 3000:3000 \
               --env-file /home/ec2-user/citax.env \
+              -e APP_VERSION=${{ github.sha }} \
               ghcr.io/${{ github.repository_owner }}/citax-backend:latest
+              
+            docker image prune -f

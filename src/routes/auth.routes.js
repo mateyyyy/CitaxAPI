@@ -3,6 +3,7 @@ const router = express.Router();
 const pool = require('../config/db');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
+const { authenticateCompanyUser } = require('../services/authCompany.service');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'secret-key-citax';
 
@@ -17,20 +18,48 @@ function toSlug(text) {
 router.post('/login', async (req, res) => {
     const { email, password } = req.body;
     try {
-        const [rows] = await pool.execute('SELECT * FROM USUARIO WHERE email = ?', [email]);
+        const authResult = await authenticateCompanyUser({ email, password });
+        if (!authResult) return res.status(401).json({ error: 'Credenciales inválidas' });
+        const { user: resolvedUser } = authResult;
+        
+        const token = jwt.sign({
+            id_usuario: resolvedUser.id,
+            email: resolvedUser.email,
+            id_empresa: resolvedUser.empresa_id,
+            id_prestador: resolvedUser.id_prestador,
+            rol: resolvedUser.rol
+        }, JWT_SECRET, { expiresIn: '30d' });
+
+        res.json({
+            token,
+            user: resolvedUser
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Error en el servidor' });
+    }
+});
+
+// Refresh token endpoint - renews the token if it's still valid
+router.post('/refresh', async (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ error: 'No token provided' });
+    }
+
+    const token = authHeader.split(' ')[1];
+
+    try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+
+        // Fetch fresh user data from DB
+        const [rows] = await pool.execute('SELECT * FROM USUARIO WHERE id_usuario = ?', [decoded.id_usuario]);
         const user = rows[0];
-
-        if (!user) return res.status(401).json({ error: 'Credenciales inválidas' });
-
-        const isMatch = await bcrypt.compare(password, user.password_hash);
-        if (!isMatch && password !== user.password_hash) {
-            return res.status(401).json({ error: 'Credenciales inválidas' });
-        }
+        if (!user) return res.status(401).json({ error: 'User not found' });
 
         const [empresaRows] = await pool.execute('SELECT * FROM EMPRESA WHERE id_usuario = ?', [user.id_usuario]);
         const empresa = empresaRows[0];
 
-        // If user is a prestador, look up their PRESTADOR record + parent EMPRESA
         let prestadorData = null;
         if (user.rol === 'prestador') {
             const [prestRows] = await pool.execute(
@@ -42,17 +71,18 @@ router.post('/login', async (req, res) => {
             );
             prestadorData = prestRows[0];
         }
-        
-        const token = jwt.sign({
+
+        // Issue a brand new token with fresh 30-day expiry
+        const newToken = jwt.sign({
             id_usuario: user.id_usuario,
             email: user.email,
             id_empresa: empresa?.id_empresa || prestadorData?.id_empresa || null,
             id_prestador: prestadorData?.id_prestador || null,
             rol: user.rol
-        }, JWT_SECRET, { expiresIn: '24h' });
+        }, JWT_SECRET, { expiresIn: '30d' });
 
         res.json({
-            token,
+            token: newToken,
             user: {
                 id: user.id_usuario,
                 email: user.email,
@@ -66,8 +96,7 @@ router.post('/login', async (req, res) => {
             }
         });
     } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: 'Error en el servidor' });
+        return res.status(401).json({ error: 'Invalid or expired token' });
     }
 });
 

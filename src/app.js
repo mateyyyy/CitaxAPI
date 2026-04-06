@@ -58,11 +58,13 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use(express.json());
 
-// Root check
+// Main check and Health
 app.get('/', (req, res) => res.json({ message: 'Citax API is running', version: '1.0.0' }));
-
-// Health check
-app.get('/health', (req, res) => res.json({ status: 'ok' }));
+app.get('/health', (req, res) => res.json({
+    status: 'ok',
+    version: process.env.APP_VERSION || 'local',
+    model: process.env.GEMINI_MODEL || 'not set',
+}));
 
 // Routes
 app.use('/api/auth', authRoutes);

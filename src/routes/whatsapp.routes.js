@@ -6,6 +6,8 @@ const {
   getCurrentInstance,
   disconnectCurrentInstance,
   handleWebhook,
+  getMessages,
+  sendMessage,
 } = require("../controllers/whatsapp.controller");
 
 // WEBHOOK route - MUST be public (no authMiddleware)
@@ -16,6 +18,8 @@ router.use(authMiddleware);
 
 router.post("/create-instance", createInstanceQr);
 router.get("/status", getCurrentInstance);
+router.get("/messages", getMessages);
+router.post("/send-message", sendMessage);
 router.post("/disconnect", disconnectCurrentInstance);
 
 module.exports = router;

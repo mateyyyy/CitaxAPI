@@ -24,9 +24,13 @@ const superadminCredentials = getSuperadminCredentials();
 const SUPERADMIN_EMAIL = superadminCredentials.email;
 const SUPERADMIN_PASSWORD = superadminCredentials.password;
 const SUPERADMIN_SECRET = superadminCredentials.secret;
+<<<<<<< HEAD
 const SUPPORT_INSTANCE = normalizeInstanceName(
   superadminCredentials.supportInstance
 );
+=======
+const SUPPORT_INSTANCE = normalizeInstanceName(superadminCredentials.supportInstance);
+>>>>>>> master
 
 if (superadminCredentials.usingDefaults) {
   console.warn(
@@ -42,9 +46,13 @@ const authSuperadmin = (req, res, next) => {
   const token = authHeader.split(" ")[1];
   try {
     const decoded = jwt.verify(token, SUPERADMIN_SECRET);
+<<<<<<< HEAD
     if (decoded.role !== "superadmin") {
       return res.status(403).json({ error: "Forbidden" });
     }
+=======
+    if (decoded.role !== "superadmin") return res.status(403).json({ error: "Forbidden" });
+>>>>>>> master
     req.superadmin = decoded;
     next();
   } catch (err) {
@@ -57,10 +65,14 @@ router.post("/login", (req, res) => {
   const normalizedEmail = normalizeEmail(email);
   const normalizedPassword = normalizeCredentialValue(password);
 
+<<<<<<< HEAD
   if (
     normalizedEmail !== SUPERADMIN_EMAIL ||
     normalizedPassword !== SUPERADMIN_PASSWORD
   ) {
+=======
+  if (normalizedEmail !== SUPERADMIN_EMAIL || normalizedPassword !== SUPERADMIN_PASSWORD) {
+>>>>>>> master
     return res.status(401).json({ error: "Credenciales inválidas" });
   }
 
@@ -82,8 +94,12 @@ router.use(authSuperadmin);
 router.get("/support-whatsapp/status", async (req, res) => {
   try {
     const connectionState = await getSafeConnectionState(SUPPORT_INSTANCE);
+<<<<<<< HEAD
     const status =
       connectionState?.instance?.state || connectionState?.state || "unknown";
+=======
+    const status = connectionState?.instance?.state || connectionState?.state || "unknown";
+>>>>>>> master
     const webhook = await registerWebhook(SUPPORT_INSTANCE);
 
     return res.json({
@@ -95,9 +111,13 @@ router.get("/support-whatsapp/status", async (req, res) => {
       webhook,
     });
   } catch (error) {
+<<<<<<< HEAD
     return res
       .status(500)
       .json({ error: error.message || "Error al obtener estado" });
+=======
+    return res.status(500).json({ error: error.message || "Error al obtener estado" });
+>>>>>>> master
   }
 });
 
@@ -122,9 +142,13 @@ router.post("/support-whatsapp/connect", async (req, res) => {
 
       try {
         const connectRes = await axios.get(
+<<<<<<< HEAD
           `${
             process.env.EVOLUTION_API_URL || "http://localhost:8080"
           }/instance/connect/${SUPPORT_INSTANCE}`,
+=======
+          `${process.env.EVOLUTION_API_URL || "http://localhost:8080"}/instance/connect/${SUPPORT_INSTANCE}`,
+>>>>>>> master
           { headers: { apikey: process.env.EVOLUTION_API_KEY } }
         );
 
@@ -151,8 +175,12 @@ router.post("/support-whatsapp/connect", async (req, res) => {
           raw: null,
           connectionState,
           webhook,
+<<<<<<< HEAD
           warning:
             "No se pudo forzar reconnect en Evolution, pero se devolvió estado actual.",
+=======
+          warning: "No se pudo forzar reconnect en Evolution, pero se devolvió estado actual.",
+>>>>>>> master
           debug: {
             code: connectError.code || null,
             status: connectError.response?.status || null,
@@ -185,9 +213,13 @@ router.post("/support-whatsapp/disconnect", async (req, res) => {
     clearLatestQr(SUPPORT_INSTANCE);
     return res.json({ success: true, ...result });
   } catch (error) {
+<<<<<<< HEAD
     return res.status(500).json({
       error: error.message || "Error al desconectar WhatsApp soporte",
     });
+=======
+    return res.status(500).json({ error: error.message || "Error al desconectar WhatsApp soporte" });
+>>>>>>> master
   }
 });
 

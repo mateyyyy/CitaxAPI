@@ -9,7 +9,10 @@ const {
   isSingleProviderModeEnabledForConfig,
   normalizeOwnPhrasesConfig,
 } = require("../singleProviderMode.service");
+<<<<<<< HEAD
 const { hasTurnoOrigenColumn } = require("../turnoSchema.service");
+=======
+>>>>>>> master
 
 const DEFAULT_TIMEZONE = "America/Argentina/Buenos_Aires";
 
@@ -42,6 +45,7 @@ const getNowInTimezone = (timezone = DEFAULT_TIMEZONE) => {
   const parts = {};
   new Intl.DateTimeFormat("en-CA", {
     timeZone: timezone,
+<<<<<<< HEAD
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -71,6 +75,24 @@ const formatTime = (value) => String(value || "").slice(0, 5);
 const normalizePhone = (value) =>
   String(value || "").replace(/@.*/, "").replace(/[^\d]/g, "").trim();
 const normalizeClientName = (value) => String(value || "").trim();
+=======
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+  }).formatToParts(new Date()).forEach(p => { parts[p.type] = p.value; });
+  return new Date(`${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}Z`);
+};
+
+const isSlotStillBookable = ({ slotEnd, now = getNowInTimezone() }) => {
+  if (!(slotEnd instanceof Date) || Number.isNaN(slotEnd.getTime())) return false;
+  if (!(now instanceof Date) || Number.isNaN(now.getTime())) return false;
+  return slotEnd > now;
+};
+
+const pad = (v) => String(v).padStart(2, "0");
+const formatTime = (v) => String(v || "").slice(0, 5);
+const normalizePhone = (v) => String(v || "").replace(/@.*/, "").replace(/[^\d]/g, "").trim();
+const normalizeClientName = (v) => String(v || "").trim();
+>>>>>>> master
 
 const normalizeDate = (value, referenceDate = new Date()) => {
   if (!value) return null;
@@ -100,10 +122,16 @@ const normalizeDate = (value, referenceDate = new Date()) => {
     return normalizeDate(date);
   }
 
+<<<<<<< HEAD
   const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (isoMatch) {
     return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
   }
+=======
+  if (lower === "hoy") return normalizeDate(getRef());
+  if (lower === "maÃ±ana" || lower === "manana") { const d = getRef(); d.setDate(d.getDate() + 1); return normalizeDate(d); }
+  if (lower === "pasado maÃ±ana" || lower === "pasado manana") { const d = getRef(); d.setDate(d.getDate() + 2); return normalizeDate(d); }
+>>>>>>> master
 
   const parsed = new Date(raw);
   return Number.isNaN(parsed.getTime())
@@ -111,6 +139,7 @@ const normalizeDate = (value, referenceDate = new Date()) => {
     : parsed.toISOString().slice(0, 10);
 };
 
+<<<<<<< HEAD
 const addDays = (dateStr, days) => {
   const date = new Date(`${dateStr}T12:00:00Z`);
   date.setUTCDate(date.getUTCDate() + days);
@@ -138,6 +167,15 @@ const getCompanyContextByInstanceName = async (
   instanceName,
   customerPhone = null
 ) => {
+=======
+const addDays = (dateStr, days) => { const d = new Date(`${dateStr}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + days); return d.toISOString().slice(0, 10); };
+const toWeekdayNumber = (dateStr) => { const d = new Date(`${dateStr}T12:00:00Z`).getUTCDay(); return d === 0 ? 7 : d; };
+const combineDateTime = (dateStr, timeStr) => new Date(`${dateStr}T${timeStr}:00Z`);
+const overlaps = (s1, e1, s2, e2) => s1 < e2 && s2 < e1;
+
+// â”€â”€â”€ Get company context by instance name â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+const getCompanyContextByInstanceName = async (instanceName, customerPhone = null) => {
+>>>>>>> master
   const config = await prisma.cONFIG_WHATSAPP.findFirst({
     where: { instance_name: instanceName },
     include: {
@@ -170,6 +208,7 @@ const getCompanyContextByInstanceName = async (
       duration: prestadorServicio.SERVICIO.duracion_minutos,
       price: Number(prestadorServicio.SERVICIO.precio),
     })),
+<<<<<<< HEAD
     horarios_disponibilidad: prestador.horarios_disponibilidad || null,
     availability: resolveEffectiveAvailability({
       ownConfig: prestador.horarios_disponibilidad,
@@ -178,6 +217,14 @@ const getCompanyContextByInstanceName = async (
     usesFallbackAvailability: isNullishAvailability(
       prestador.horarios_disponibilidad
     ),
+=======
+    horarios_disponibilidad: p.horarios_disponibilidad || null,
+    availability: resolveEffectiveAvailability({
+      ownConfig: p.horarios_disponibilidad,
+      companyConfig: empresa.horarios_disponibilidad,
+    }),
+    usesFallbackAvailability: isNullishAvailability(p.horarios_disponibilidad),
+>>>>>>> master
   }));
 
   const services = empresa.SERVICIO.map((service) => ({
@@ -213,6 +260,7 @@ const getCompanyContextByInstanceName = async (
         orderBy: { fecha_hora: "asc" },
       });
 
+<<<<<<< HEAD
       customerPendingAppointments = pendingAppointments.map((appointment) => ({
         id: appointment.id_turno,
         date: appointment.fecha_hora.toISOString().slice(0, 10),
@@ -223,10 +271,19 @@ const getCompanyContextByInstanceName = async (
         ),
         service: appointment.SERVICIO.nombre,
         professional: `${appointment.PRESTADOR.USUARIO.nombre} ${appointment.PRESTADOR.USUARIO.apellido}`,
+=======
+      customerPendingAppointments = pending.map((t) => ({
+        id: t.id_turno,
+        date: t.fecha_hora.toISOString().slice(0, 10),
+        time: formatTime(`${pad(t.fecha_hora.getUTCHours())}:${pad(t.fecha_hora.getUTCMinutes())}`),
+        service: t.SERVICIO.nombre,
+        professional: `${t.PRESTADOR.USUARIO.nombre} ${t.PRESTADOR.USUARIO.apellido}`,
+>>>>>>> master
       }));
     }
   }
 
+<<<<<<< HEAD
   const botConfig = await getCompanyBotConfig(empresa.id_empresa).catch(
     () => ({})
   );
@@ -237,6 +294,17 @@ const getCompanyContextByInstanceName = async (
     professionals.length === 1 &&
     (singleProviderMode || botConfig.primera_persona === true);
 
+=======
+  // Leer bot_config para determinar el modo primera persona
+  const botConfig = await getCompanyBotConfig(empresa.id_empresa).catch(() => ({}));
+  const singleProviderMode = isSingleProviderModeEnabledForConfig(botConfig);
+
+  // Primera persona: solo aplica si estÃ¡ habilitado Y hay exactamente 1 prestador activo
+  const primerPersonaActiva = professionals.length === 1 && (
+    singleProviderMode ||
+    botConfig.primera_persona === true
+  );
+>>>>>>> master
   const personaName = primerPersonaActiva
     ? professionals[0].name
     : professionals[0]?.name || empresa.nombre_comercial;
@@ -272,6 +340,10 @@ const getCompanyContextByCompanyId = async (companyId, customerPhone = null) => 
   return getCompanyContextByInstanceName(config.instance_name, customerPhone);
 };
 
+<<<<<<< HEAD
+=======
+// â”€â”€â”€ List available slots â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+>>>>>>> master
 const listAvailableSlots = async ({
   companyId,
   professionalId = null,
@@ -286,8 +358,12 @@ const listAvailableSlots = async ({
     normalizeDate(startDate, referenceDate) ||
     normalizeDate(referenceDate) ||
     getCurrentDateInTimeZone();
+<<<<<<< HEAD
   const normalizedEnd =
     normalizeDate(endDate, referenceDate) || addDays(normalizedStart, 14);
+=======
+  const normalizedEnd = normalizeDate(endDate, referenceDate) || addDays(normalizedStart, 14);
+>>>>>>> master
 
   const empresa = await prisma.eMPRESA.findUnique({
     where: { id_empresa: companyId },
@@ -305,6 +381,7 @@ const listAvailableSlots = async ({
   if (!empresa) return [];
 
   const companyConfig = empresa.horarios_disponibilidad;
+<<<<<<< HEAD
   let prestadores = empresa.PRESTADOR;
 
   if (professionalId) {
@@ -313,6 +390,14 @@ const listAvailableSlots = async ({
     );
   }
 
+=======
+
+  let prestadores = empresa.PRESTADOR;
+  if (professionalId) {
+    prestadores = prestadores.filter((p) => Number(p.id_prestador) === Number(professionalId));
+  }
+
+>>>>>>> master
   if (professionalName) {
     const normalizedSearch = normalizeSearchText(professionalName);
     prestadores = prestadores.filter((prestador) => {
@@ -324,11 +409,16 @@ const listAvailableSlots = async ({
   }
 
   if (serviceId) {
+<<<<<<< HEAD
     prestadores = prestadores.filter((prestador) =>
       prestador.SERVICIOS.some(
         (prestadorServicio) =>
           Number(prestadorServicio.SERVICIO.id_servicio) === Number(serviceId)
       )
+=======
+    prestadores = prestadores.filter((p) =>
+      p.SERVICIOS.some((ps) => Number(ps.SERVICIO.id_servicio) === Number(serviceId))
+>>>>>>> master
     );
   }
 
@@ -361,6 +451,18 @@ const listAvailableSlots = async ({
 
   const slots = [];
   const defaultDuration = 30;
+  const prestadoresConAgenda = prestadores.map((prestador) => {
+    const availability = resolveEffectiveAvailability({
+      ownConfig: prestador.horarios_disponibilidad,
+      companyConfig,
+    });
+
+    return {
+      ...prestador,
+      availability,
+      availabilityMap: buildAvailabilityMap(availability.config),
+    };
+  });
 
   for (
     let cursor = normalizedStart;
@@ -371,6 +473,7 @@ const listAvailableSlots = async ({
 
     for (const prestador of prestadoresConAgenda) {
       const selectedService = serviceId
+<<<<<<< HEAD
         ? prestador.SERVICIOS.find(
             (prestadorServicio) =>
               Number(prestadorServicio.SERVICIO.id_servicio) === Number(serviceId)
@@ -379,6 +482,12 @@ const listAvailableSlots = async ({
       const duration = selectedService?.duracion_minutos || defaultDuration;
       const daySchedules = prestador.availabilityMap[weekday];
 
+=======
+        ? prestador.SERVICIOS.find((ps) => Number(ps.SERVICIO.id_servicio) === Number(serviceId))?.SERVICIO
+        : prestador.SERVICIOS[0]?.SERVICIO;
+      const duration = selectedService?.duracion_minutos || defaultDuration;
+      const daySchedules = prestador.availabilityMap[weekday];
+>>>>>>> master
       if (!daySchedules || !daySchedules.length) continue;
 
       for (const daySchedule of daySchedules) {
@@ -407,12 +516,17 @@ const listAvailableSlots = async ({
               professionalId: prestador.id_prestador,
               professionalName: `${prestador.USUARIO.nombre} ${prestador.USUARIO.apellido}`,
               date: cursor,
+<<<<<<< HEAD
               time: `${pad(slotStart.getUTCHours())}:${pad(
                 slotStart.getUTCMinutes()
               )}`,
               endTime: `${pad(slotEnd.getUTCHours())}:${pad(
                 slotEnd.getUTCMinutes()
               )}`,
+=======
+              time: `${pad(slotStart.getUTCHours())}:${pad(slotStart.getUTCMinutes())}`,
+              endTime: `${pad(slotEnd.getUTCHours())}:${pad(slotEnd.getUTCMinutes())}`,
+>>>>>>> master
               duration,
               scheduleSource: prestador.availability.source,
             });
@@ -428,6 +542,10 @@ const listAvailableSlots = async ({
   return slots;
 };
 
+<<<<<<< HEAD
+=======
+// â”€â”€â”€ Find or create client â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+>>>>>>> master
 const findOrCreateClient = async ({ companyId, clientName, clientPhone }) => {
   const normalizedPhone = normalizePhone(clientPhone);
   const normalizedName = normalizeClientName(clientName);
@@ -447,7 +565,11 @@ const findOrCreateClient = async ({ companyId, clientName, clientPhone }) => {
 
     if (existingByName) return existingByName;
 
+<<<<<<< HEAD
     return prisma.cLIENTE.create({
+=======
+    return await prisma.cLIENTE.create({
+>>>>>>> master
       data: {
         id_empresa: companyId,
         whatsapp_id: `manual-${companyId}-${Date.now()}`,
@@ -474,6 +596,7 @@ const findOrCreateClient = async ({ companyId, clientName, clientPhone }) => {
   });
 };
 
+<<<<<<< HEAD
 const createAppointmentFromAssistant = async ({
   companyId,
   professionalId,
@@ -490,6 +613,14 @@ const createAppointmentFromAssistant = async ({
   if (!normalizedDate || !normalizedTime) {
     throw new Error("Fecha u hora invalidas");
   }
+=======
+// â”€â”€â”€ Create appointment from assistant â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+const createAppointmentFromAssistant = async ({ companyId, professionalId, clientName, clientPhone, serviceId, date, time, referenceDate }) => {
+  const normalizedDate = normalizeDate(date, referenceDate);
+  const normalizedTime = formatTime(time);
+
+  if (!normalizedDate || !normalizedTime) throw new Error("Fecha u hora invalidas");
+>>>>>>> master
 
   const prestador = await prisma.pRESTADOR.findUnique({
     where: { id_prestador: professionalId },
@@ -517,6 +648,10 @@ const createAppointmentFromAssistant = async ({
     }
   }
 
+<<<<<<< HEAD
+=======
+  // VALIDACION ESTRICTA: El horario DEBE existir en la disponibilidad teorica calculada por el sistema.
+>>>>>>> master
   const validSlotsInfo = await listAvailableSlots({
     companyId,
     professionalId,
@@ -527,6 +662,7 @@ const createAppointmentFromAssistant = async ({
     limit: 150,
   });
 
+<<<<<<< HEAD
   const slotIsValid = validSlotsInfo.some(
     (slot) =>
       Number(slot.professionalId) === Number(professionalId) &&
@@ -547,6 +683,26 @@ const createAppointmentFromAssistant = async ({
 
   const duration = servicio.duracion_minutos || 30;
   const fechaHora = new Date(`${normalizedDate}T${normalizedTime}:00Z`);
+=======
+  const slotIsValid = validSlotsInfo.some(s => 
+    Number(s.professionalId) === Number(professionalId) && 
+    s.date === normalizedDate && 
+    s.time === normalizedTime
+  );
+
+  if (!slotIsValid) {
+    throw new Error(`El horario solicitado (${normalizedDate} a las ${normalizedTime}) NO forma parte de la jornada laboral o ya caduco. Usa la herramienta find_available_slots para ver que horarios si estan disponibles y ofrecerlos.`);
+  }
+
+  const servicio = await prisma.sERVICIO.findUnique({ where: { id_servicio: resolvedServiceId } });
+  if (!servicio) throw new Error("Servicio no encontrado");
+
+  const duration = servicio.duracion_minutos || 30;
+  // Agregamos la "Z" al final para que JS lo tome como UTC puro
+  // y Prisma guarde 14:30 tal cual, sin sumarle las 3 horas de offset.
+  const fechaHora = new Date(`${normalizedDate}T${normalizedTime}:00Z`);
+
+>>>>>>> master
   const endTime = new Date(fechaHora.getTime() + duration * 60000);
 
   const existing = await prisma.tURNO.findFirst({
@@ -560,9 +716,13 @@ const createAppointmentFromAssistant = async ({
     },
   });
 
+<<<<<<< HEAD
   if (existing) {
     throw new Error("Ese horario ya no esta disponible. Proba con otro.");
   }
+=======
+  if (existing) throw new Error("Ese horario ya no estÃ¡ disponible. ProbÃ¡ con otro.");
+>>>>>>> master
 
   const client = await findOrCreateClient({
     companyId,
@@ -600,6 +760,7 @@ const createAppointmentFromAssistant = async ({
   };
 };
 
+<<<<<<< HEAD
 const cancelAppointmentFromAssistant = async ({
   companyId,
   clientPhone,
@@ -607,6 +768,10 @@ const cancelAppointmentFromAssistant = async ({
   time,
   referenceDate,
 }) => {
+=======
+// â”€â”€â”€ Cancel appointment â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+const cancelAppointmentFromAssistant = async ({ companyId, clientPhone, date, time, referenceDate }) => {
+>>>>>>> master
   const normalizedPhone = normalizePhone(clientPhone);
   const normalizedDate = date ? normalizeDate(date, referenceDate) : null;
   const normalizedTime = time ? formatTime(time) : null;
@@ -618,7 +783,11 @@ const cancelAppointmentFromAssistant = async ({
     },
   });
 
+<<<<<<< HEAD
   if (!client) throw new Error("No encontre tu registro de cliente.");
+=======
+  if (!client) throw new Error("No encontrÃ© tu registro de cliente.");
+>>>>>>> master
 
   const where = {
     id_cliente: client.id_cliente,
@@ -639,6 +808,7 @@ const cancelAppointmentFromAssistant = async ({
     );
   }
   if (normalizedTime) {
+<<<<<<< HEAD
     filtered = filtered.filter((appointment) => {
       const slotTime = `${pad(appointment.fecha_hora.getUTCHours())}:${pad(
         appointment.fecha_hora.getUTCMinutes()
@@ -650,16 +820,32 @@ const cancelAppointmentFromAssistant = async ({
   if (!filtered.length) {
     throw new Error("No encontre ningun turno pendiente para cancelar.");
   }
+=======
+    filtered = filtered.filter((a) => {
+      const t = `${pad(a.fecha_hora.getUTCHours())}:${pad(a.fecha_hora.getUTCMinutes())}`;
+      return t === normalizedTime;
+    });
+  }
+
+  if (!filtered.length) throw new Error("No encontrÃ© ningÃºn turno pendiente para cancelar.");
+>>>>>>> master
 
   if (filtered.length > 1 && (!normalizedDate || !normalizedTime)) {
     return {
       status: "multiple_found",
+<<<<<<< HEAD
       appointments: filtered.map((appointment) => ({
         id: appointment.id_turno,
         date: appointment.fecha_hora.toISOString().slice(0, 10),
         time: `${pad(appointment.fecha_hora.getUTCHours())}:${pad(
           appointment.fecha_hora.getUTCMinutes()
         )}`,
+=======
+      appointments: filtered.map((a) => ({
+        id: a.id_turno,
+        date: a.fecha_hora.toISOString().slice(0, 10),
+        time: `${pad(a.fecha_hora.getUTCHours())}:${pad(a.fecha_hora.getUTCMinutes())}`,
+>>>>>>> master
       })),
     };
   }
@@ -674,12 +860,20 @@ const cancelAppointmentFromAssistant = async ({
     status: "cancelled",
     appointmentId: appointment.id_turno,
     date: appointment.fecha_hora.toISOString().slice(0, 10),
+<<<<<<< HEAD
     time: `${pad(appointment.fecha_hora.getUTCHours())}:${pad(
       appointment.fecha_hora.getUTCMinutes()
     )}`,
   };
 };
 
+=======
+    time: `${pad(appointment.fecha_hora.getUTCHours())}:${pad(appointment.fecha_hora.getUTCMinutes())}`,
+  };
+};
+
+// â”€â”€â”€ List appointments by day â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+>>>>>>> master
 const listAppointmentsByDay = async ({ companyId, date, referenceDate }) => {
   const normalizedDate =
     normalizeDate(date, referenceDate) || normalizeDate(referenceDate);
@@ -702,6 +896,7 @@ const listAppointmentsByDay = async ({ companyId, date, referenceDate }) => {
     orderBy: { fecha_hora: "asc" },
   });
 
+<<<<<<< HEAD
   return turnos.map((turno) => ({
     appointmentId: turno.id_turno,
     date: turno.fecha_hora.toISOString().slice(0, 10),
@@ -717,6 +912,20 @@ const listAppointmentsByDay = async ({ companyId, date, referenceDate }) => {
   }));
 };
 
+=======
+  return turnos.map((t) => ({
+    appointmentId: t.id_turno,
+    date: t.fecha_hora.toISOString().slice(0, 10),
+    time: formatTime(`${pad(t.fecha_hora.getUTCHours())}:${pad(t.fecha_hora.getUTCMinutes())}`),
+    status: t.estado,
+    serviceName: t.SERVICIO?.nombre || "Turno",
+    professionalName: `${t.PRESTADOR.USUARIO.nombre} ${t.PRESTADOR.USUARIO.apellido}`,
+    clientName: t.CLIENTE?.nombre_wa || "Sin nombre",
+  }));
+};
+
+// â”€â”€â”€ Cancel appointment by company slot (support bot) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+>>>>>>> master
 const cancelAppointmentByCompanyFromAssistant = async ({
   companyId,
   date,
@@ -753,6 +962,7 @@ const cancelAppointmentByCompanyFromAssistant = async ({
   });
 
   let filtered = appointments;
+<<<<<<< HEAD
 
   if (normalizedTime) {
     filtered = filtered.filter((appointment) => {
@@ -760,10 +970,17 @@ const cancelAppointmentByCompanyFromAssistant = async ({
         appointment.fecha_hora.getUTCMinutes()
       )}`;
       return slotTime === normalizedTime;
+=======
+  if (normalizedTime) {
+    filtered = filtered.filter((a) => {
+      const t = `${pad(a.fecha_hora.getUTCHours())}:${pad(a.fecha_hora.getUTCMinutes())}`;
+      return t === normalizedTime;
+>>>>>>> master
     });
   }
 
   if (professionalName) {
+<<<<<<< HEAD
     const needle = normalizeSearchText(professionalName);
     filtered = filtered.filter((appointment) => {
       const fullName = normalizeSearchText(
@@ -771,11 +988,20 @@ const cancelAppointmentByCompanyFromAssistant = async ({
           appointment.PRESTADOR?.USUARIO?.apellido || ""
         }`
       );
+=======
+    const needle = String(professionalName).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    filtered = filtered.filter((a) => {
+      const fullName = `${a.PRESTADOR?.USUARIO?.nombre || ""} ${a.PRESTADOR?.USUARIO?.apellido || ""}`
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "");
+>>>>>>> master
       return fullName.includes(needle);
     });
   }
 
   if (clientName) {
+<<<<<<< HEAD
     const needle = normalizeSearchText(clientName);
     filtered = filtered.filter((appointment) =>
       normalizeSearchText(appointment.CLIENTE?.nombre_wa || "").includes(needle)
@@ -786,11 +1012,26 @@ const cancelAppointmentByCompanyFromAssistant = async ({
     throw new Error(
       "No encontre ningun turno activo con esos datos para cancelar."
     );
+=======
+    const needle = String(clientName).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    filtered = filtered.filter((a) => {
+      const fullName = String(a.CLIENTE?.nombre_wa || "")
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "");
+      return fullName.includes(needle);
+    });
+  }
+
+  if (!filtered.length) {
+    throw new Error("No encontrÃ© ningÃºn turno activo con esos datos para cancelar.");
+>>>>>>> master
   }
 
   if (filtered.length > 1 && (!normalizedDate || !normalizedTime)) {
     return {
       status: "multiple_found",
+<<<<<<< HEAD
       appointments: filtered.slice(0, 8).map((appointment) => ({
         id: appointment.id_turno,
         date: appointment.fecha_hora.toISOString().slice(0, 10),
@@ -801,6 +1042,14 @@ const cancelAppointmentByCompanyFromAssistant = async ({
           appointment.PRESTADOR?.USUARIO?.apellido || ""
         }`.trim(),
         client: appointment.CLIENTE?.nombre_wa || "Sin nombre",
+=======
+      appointments: filtered.slice(0, 8).map((a) => ({
+        id: a.id_turno,
+        date: a.fecha_hora.toISOString().slice(0, 10),
+        time: `${pad(a.fecha_hora.getUTCHours())}:${pad(a.fecha_hora.getUTCMinutes())}`,
+        professional: `${a.PRESTADOR?.USUARIO?.nombre || ""} ${a.PRESTADOR?.USUARIO?.apellido || ""}`.trim(),
+        client: a.CLIENTE?.nombre_wa || "Sin nombre",
+>>>>>>> master
       })),
     };
   }
@@ -815,12 +1064,17 @@ const cancelAppointmentByCompanyFromAssistant = async ({
     status: "cancelled",
     appointmentId: appointment.id_turno,
     date: appointment.fecha_hora.toISOString().slice(0, 10),
+<<<<<<< HEAD
     time: `${pad(appointment.fecha_hora.getUTCHours())}:${pad(
       appointment.fecha_hora.getUTCMinutes()
     )}`,
     professional: `${appointment.PRESTADOR?.USUARIO?.nombre || ""} ${
       appointment.PRESTADOR?.USUARIO?.apellido || ""
     }`.trim(),
+=======
+    time: `${pad(appointment.fecha_hora.getUTCHours())}:${pad(appointment.fecha_hora.getUTCMinutes())}`,
+    professional: `${appointment.PRESTADOR?.USUARIO?.nombre || ""} ${appointment.PRESTADOR?.USUARIO?.apellido || ""}`.trim(),
+>>>>>>> master
     client: appointment.CLIENTE?.nombre_wa || "Sin nombre",
     clientPhone: normalizePhone(appointment.CLIENTE?.whatsapp_id || ""),
     service: appointment.SERVICIO?.nombre || "Turno",
@@ -839,3 +1093,4 @@ module.exports = {
   listAppointmentsByDay,
   normalizeDate,
 };
+

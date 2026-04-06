@@ -20,6 +20,7 @@ function getFirstDefinedValue(env, keys) {
 }
 
 function getSuperadminCredentials(env = process.env) {
+<<<<<<< HEAD
   const rawEmail = getFirstDefinedValue(env, [
     "SUPERADMIN_EMAIL",
     "SUPERADMIN_USER",
@@ -28,6 +29,10 @@ function getSuperadminCredentials(env = process.env) {
     "SUPERADMIN_PASSWORD",
     "SUPERADMIN_PASS",
   ]);
+=======
+  const rawEmail = getFirstDefinedValue(env, ["SUPERADMIN_EMAIL", "SUPERADMIN_USER"]);
+  const rawPassword = getFirstDefinedValue(env, ["SUPERADMIN_PASSWORD", "SUPERADMIN_PASS"]);
+>>>>>>> master
   const rawSecret = getFirstDefinedValue(env, [
     "SUPERADMIN_JWT_SECRET",
     "SUPERADMIN_SECRET",
