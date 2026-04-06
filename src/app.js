@@ -7,6 +7,8 @@ const configRoutes = require('./routes/config.routes');
 const servicesRoutes = require('./routes/services.routes');
 const professionalsRoutes = require('./routes/professionals.routes');
 const whatsappRoutes = require('./routes/whatsapp.routes');
+const superadminRoutes = require('./routes/superadmin.routes');
+const publicRoutes = require('./routes/public.routes');
 
 const app = express();
 const fs = require('fs');
@@ -22,23 +24,31 @@ app.use((req, res, next) => {
     next();
 });
 
+const allowedOrigins = new Set([
+    'https://www.citax.com.ar',
+    'https://citax.com.ar',
+    'http://localhost:5173',
+    'http://localhost:5174',
+    'http://localhost:3000'
+]);
+
+const isAllowedCitaxOrigin = (origin) => {
+    if (!origin) return true;
+    if (allowedOrigins.has(origin)) return true;
+    if (/^https:\/\/[a-z0-9-]+\.citax\.com\.ar$/i.test(origin)) return true;
+    if (/^http:\/\/localhost:\d+$/i.test(origin)) return true;
+    if (/^http:\/\/[a-z0-9-]+\.localhost:\d+$/i.test(origin)) return true;
+    if (/^http:\/\/[a-z0-9-]+\.citax\.local:\d+$/i.test(origin)) return true;
+    return false;
+};
+
 const corsOptions = {
-    origin: (origin, callback) => {
-        const allowedOrigins = [
-            'https://www.citax.com.ar',
-            'https://citax.com.ar',
-            'http://localhost:5173',
-            'http://localhost:5174',
-            'http://localhost:3000',
-            'https://unwatched-sindy-bully.ngrok-free.dev'
-        ];
-        // Permitir localhost e IPs privadas (192.168.x.x) dinámicamente para desarrollo
-        if (!origin || allowedOrigins.includes(origin) || origin.includes('localhost') || origin.includes('127.0.0.1') || /^http:\/\/192\.168\.\d+\.\d+:\d+$/.test(origin)) {
-            callback(null, true);
-        } else {
-            console.warn(`🛑 CORS Blocked origin: ${origin}`);
-            callback(new Error('Not allowed by CORS'));
+    origin(origin, callback) {
+        if (isAllowedCitaxOrigin(origin)) {
+            return callback(null, true);
         }
+
+        return callback(new Error('Origin no permitido por CORS'));
     },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'ngrok-skip-browser-warning'],
@@ -62,6 +72,9 @@ app.use('/api/config', configRoutes);
 app.use('/api/services', servicesRoutes);
 app.use('/api/professionals', professionalsRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
+app.use('/api/superadmin', superadminRoutes);
+app.use('/api/public', publicRoutes);
+app.post('/api/webhook', require('./controllers/whatsapp.controller').handleWebhook);
 
 // Error handler
 app.use((err, req, res, next) => {

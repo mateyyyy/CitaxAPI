@@ -2,13 +2,34 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/db');
 const authMiddleware = require('../middlewares/auth.middleware');
+const { hasClienteEmailColumn } = require('../services/clientSchema.service');
+const { hasTurnoOrigenColumn, inferAppointmentOrigin } = require('../services/turnoSchema.service');
+
+const formatDateLocal = (value) => {
+    const date = new Date(value);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
+
+const formatTimeLocal = (value) => {
+    const date = new Date(value);
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    return `${hours}:${minutes}`;
+};
 
 router.use(authMiddleware);
 
 router.get('/', async (req, res) => {
     try {
+        const includeClientEmail = await hasClienteEmailColumn();
+        const includeOrigin = await hasTurnoOrigenColumn();
         const query = `
-            SELECT t.*, c.nombre_wa, c.whatsapp_id, 
+            SELECT t.*, c.nombre_wa, c.whatsapp_id,
+                   ${includeClientEmail ? 'c.email AS cliente_email,' : 'NULL AS cliente_email,'}
+                   ${includeOrigin ? 't.origen AS turno_origen,' : "NULL AS turno_origen,"}
                    u.nombre as prestador_nombre, u.apellido as prestador_apellido,
                    s.nombre as servicio_nombre
             FROM TURNO t
@@ -23,11 +44,13 @@ router.get('/', async (req, res) => {
 
         const formatted = rows.map(appt => ({
             id: appt.id_turno,
-            fecha: new Date(appt.fecha_hora).toISOString().split('T')[0],
-            hora_inicio: new Date(appt.fecha_hora).toTimeString().substring(0, 5),
+            fecha: formatDateLocal(appt.fecha_hora),
+            hora_inicio: formatTimeLocal(appt.fecha_hora),
             estado: appt.estado,
+            origen: inferAppointmentOrigin({ origen: appt.turno_origen, estado: appt.estado }),
             cliente_nombre: appt.nombre_wa || 'Sin nombre',
             cliente_whatsapp: appt.whatsapp_id,
+            cliente_email: appt.cliente_email || '',
             prestador_nombre: appt.prestador_nombre,
             prestador_apellido: appt.prestador_apellido,
             servicio_nombre: appt.servicio_nombre
@@ -67,10 +90,14 @@ router.post('/', async (req, res) => {
         }
 
         const fullDate = `${fecha} ${hora_inicio}:00`;
-        const [turnoRes] = await connection.execute(
-            'INSERT INTO TURNO (id_cliente, id_prestador, id_servicio, fecha_hora, estado) VALUES (?, ?, ?, ?, ?)',
-            [clienteId, prestador_id, servicio_id, fullDate, 'pendiente']
-        );
+        const includeOrigin = await hasTurnoOrigenColumn(connection);
+        const turnoQuery = includeOrigin
+            ? 'INSERT INTO TURNO (id_cliente, id_prestador, id_servicio, fecha_hora, estado, origen) VALUES (?, ?, ?, ?, ?, ?)'
+            : 'INSERT INTO TURNO (id_cliente, id_prestador, id_servicio, fecha_hora, estado) VALUES (?, ?, ?, ?, ?)';
+        const turnoParams = includeOrigin
+            ? [clienteId, prestador_id, servicio_id, fullDate, 'confirmado', 'manual']
+            : [clienteId, prestador_id, servicio_id, fullDate, 'confirmado'];
+        const [turnoRes] = await connection.execute(turnoQuery, turnoParams);
 
         await connection.commit();
         res.status(201).json({ id_turno: turnoRes.insertId });

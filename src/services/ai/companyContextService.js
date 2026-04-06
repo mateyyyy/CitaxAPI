@@ -1,4 +1,15 @@
 const prisma = require("../../config/prisma");
+const {
+  buildAvailabilityMap,
+  isNullishAvailability,
+  resolveEffectiveAvailability,
+} = require("../../utils/availabilitySchedule");
+const {
+  getCompanyBotConfig,
+  isSingleProviderModeEnabledForConfig,
+  normalizeOwnPhrasesConfig,
+} = require("../singleProviderMode.service");
+const { hasTurnoOrigenColumn } = require("../turnoSchema.service");
 
 const DEFAULT_TIMEZONE = "America/Argentina/Buenos_Aires";
 
@@ -89,16 +100,16 @@ const getCompanyContextByInstanceName = async (instanceName, customerPhone = nul
 
   const empresa = config.EMPRESA;
   let botConfig = empresa.bot_config || {};
-  
+
   // Si Prisma no está actualizado localmente, buscamos el campo con queryRaw
   if (typeof empresa.bot_config === 'undefined') {
     try {
-        const rows = await prisma.$queryRaw`SELECT bot_config FROM EMPRESA WHERE id_empresa = ${empresa.id_empresa}`;
-        if (rows && rows.length > 0 && rows[0].bot_config) {
-            botConfig = rows[0].bot_config;
-            if (typeof botConfig === 'string') botConfig = JSON.parse(botConfig);
-        }
-    } catch(e) { console.error("Error obteniendo bot_config:", e); }
+      const rows = await prisma.$queryRaw`SELECT bot_config FROM EMPRESA WHERE id_empresa = ${empresa.id_empresa}`;
+      if (rows && rows.length > 0 && rows[0].bot_config) {
+        botConfig = rows[0].bot_config;
+        if (typeof botConfig === 'string') botConfig = JSON.parse(botConfig);
+      }
+    } catch (e) { console.error("Error obteniendo bot_config:", e); }
   }
 
   const horarios = empresa.horarios_disponibilidad || {};
@@ -351,14 +362,20 @@ const createAppointmentFromAssistant = async ({ companyId, professionalId, clien
 
   const client = await findOrCreateClient({ companyId, clientName, clientPhone });
 
+  const turnoData = {
+    id_cliente: client.id_cliente,
+    id_prestador: professionalId,
+    id_servicio: resolvedServiceId,
+    fecha_hora: fechaHora,
+    estado: "confirmado",
+  };
+
+  if (await hasTurnoOrigenColumn()) {
+    turnoData.origen = "whatsapp";
+  }
+
   const turno = await prisma.tURNO.create({
-    data: {
-      id_cliente: client.id_cliente,
-      id_prestador: professionalId,
-      id_servicio: resolvedServiceId,
-      fecha_hora: fechaHora,
-      estado: "pendiente",
-    },
+    data: turnoData,
   });
 
   return {
