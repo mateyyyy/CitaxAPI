@@ -11,6 +11,9 @@ const {
   getSingleProviderModeActivationStatus,
   sanitizeBotConfig,
 } = require("../services/singleProviderMode.service");
+const {
+  attachLandingTemplateToBotConfig,
+} = require("../utils/companyLanding");
 
 router.use(authMiddleware);
 
@@ -56,7 +59,7 @@ router.get("/", async (req, res) => {
 router.get("/company-profile", async (req, res) => {
   try {
     const [rows] = await pool.execute(
-      "SELECT nombre_comercial, slug FROM EMPRESA WHERE id_empresa = ?",
+      "SELECT nombre_comercial, slug, bot_config FROM EMPRESA WHERE id_empresa = ?",
       [req.user.id_empresa],
     );
 
@@ -65,11 +68,14 @@ router.get("/company-profile", async (req, res) => {
     }
 
     const company = rows[0];
+    const { landingTemplate } = attachLandingTemplateToBotConfig(company);
 
     res.json({
       nombre_comercial: company.nombre_comercial || "",
       slug: company.slug || "",
       public_url: buildPublicLandingUrl(company.slug),
+      landing_template: landingTemplate,
+      has_landing: Boolean(landingTemplate),
     });
   } catch (err) {
     console.error(err);
@@ -138,22 +144,50 @@ router.put(
           .json({ error: "Ese subdominio ya esta en uso por otra cuenta" });
       }
 
-      await pool.execute("UPDATE EMPRESA SET slug = ? WHERE id_empresa = ?", [
-        normalizedSlug,
-        req.user.id_empresa,
-      ]);
+      const [companyRows] = await pool.execute(
+        "SELECT nombre_comercial, slug, bot_config FROM EMPRESA WHERE id_empresa = ? LIMIT 1",
+        [req.user.id_empresa],
+      );
+
+      if (companyRows.length === 0) {
+        return res.status(404).json({ error: "Empresa no encontrada" });
+      }
+
+      const currentCompany = companyRows[0];
+      const { landingTemplate, botConfig, shouldPersist } =
+        attachLandingTemplateToBotConfig({
+          ...currentCompany,
+          slug: normalizedSlug,
+        });
+
+      if (shouldPersist) {
+        await pool.execute(
+          "UPDATE EMPRESA SET slug = ?, bot_config = ? WHERE id_empresa = ?",
+          [normalizedSlug, JSON.stringify(botConfig), req.user.id_empresa],
+        );
+      } else {
+        await pool.execute("UPDATE EMPRESA SET slug = ? WHERE id_empresa = ?", [
+          normalizedSlug,
+          req.user.id_empresa,
+        ]);
+      }
 
       const [rows] = await pool.execute(
-        "SELECT nombre_comercial, slug FROM EMPRESA WHERE id_empresa = ?",
+        "SELECT nombre_comercial, slug, bot_config FROM EMPRESA WHERE id_empresa = ?",
         [req.user.id_empresa],
       );
 
       const company = rows[0];
+      const nextLanding =
+        landingTemplate ||
+        attachLandingTemplateToBotConfig(company).landingTemplate;
 
       res.json({
         nombre_comercial: company?.nombre_comercial || "",
         slug: company?.slug || normalizedSlug,
         public_url: buildPublicLandingUrl(company?.slug || normalizedSlug),
+        landing_template: nextLanding,
+        has_landing: Boolean(nextLanding),
       });
     } catch (err) {
       console.error(err);
@@ -225,10 +259,28 @@ router.put("/account-profile", async (req, res) => {
     );
 
     if (req.user.rol === "admin_empresa") {
-      await connection.execute(
-        "UPDATE EMPRESA SET nombre_comercial = ? WHERE id_empresa = ?",
-        [nombreComercial, req.user.id_empresa],
+      const [companyRows] = await connection.execute(
+        "SELECT slug, bot_config FROM EMPRESA WHERE id_empresa = ? LIMIT 1",
+        [req.user.id_empresa],
       );
+
+      const company = companyRows[0] || {};
+      const { botConfig, shouldPersist } = attachLandingTemplateToBotConfig({
+        ...company,
+        nombre_comercial: nombreComercial,
+      });
+
+      if (shouldPersist) {
+        await connection.execute(
+          "UPDATE EMPRESA SET nombre_comercial = ?, bot_config = ? WHERE id_empresa = ?",
+          [nombreComercial, JSON.stringify(botConfig), req.user.id_empresa],
+        );
+      } else {
+        await connection.execute(
+          "UPDATE EMPRESA SET nombre_comercial = ? WHERE id_empresa = ?",
+          [nombreComercial, req.user.id_empresa],
+        );
+      }
     }
 
     await connection.commit();

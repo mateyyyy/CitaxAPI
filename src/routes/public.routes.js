@@ -5,6 +5,7 @@ const { listAvailableSlots } = require("../services/ai/companyContextService");
 const { sendTextMessage } = require("../services/evolution.service");
 const { hasClienteEmailColumn } = require("../services/clientSchema.service");
 const { hasTurnoOrigenColumn } = require("../services/turnoSchema.service");
+const { resolveCompanyLandingTemplate } = require("../utils/companyLanding");
 
 const normalizeSlug = (value) =>
   String(value || "")
@@ -19,12 +20,31 @@ const normalizePhone = (value) =>
 
 const normalizeEmail = (value) => String(value || "").trim().toLowerCase();
 const formatTime = (value) => String(value || "").slice(0, 5);
+const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+const TIME_REGEX = /^\d{2}:\d{2}$/;
+
+const isValidIsoDate = (value) => {
+  const text = String(value || "").trim();
+  if (!ISO_DATE_REGEX.test(text)) return false;
+  const parsed = new Date(`${text}T12:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === text;
+};
+
+const isValidTime = (value) => {
+  const text = String(value || "").trim();
+  if (!TIME_REGEX.test(text)) return false;
+  const [hours, minutes] = text.split(":").map(Number);
+  return hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59;
+};
+
+const buildAppointmentDateTime = (date, time) => `${date} ${time}:00`;
 
 const findCompanyBySlug = async (slug) => {
   const [rows] = await pool.execute(
     `SELECT e.id_empresa,
             e.nombre_comercial,
             e.slug,
+            e.bot_config,
             cw.instance_name,
             cw.whatsapp_number,
             cw.conectado
@@ -36,6 +56,21 @@ const findCompanyBySlug = async (slug) => {
   );
 
   return rows[0] || null;
+};
+
+const getLandingReadyCompany = async (slug) => {
+  const company = await findCompanyBySlug(slug);
+
+  if (!company) {
+    return { company: null, landingTemplate: null };
+  }
+
+  const landingTemplate = resolveCompanyLandingTemplate(company);
+
+  return {
+    company,
+    landingTemplate,
+  };
 };
 
 const listCompanyServices = async (companyId) => {
@@ -209,9 +244,18 @@ router.get("/landing/:slug", async (req, res) => {
       return res.status(400).json({ error: "Slug invalido" });
     }
 
-    const company = await findCompanyBySlug(slug);
+    const { company, landingTemplate } = await getLandingReadyCompany(slug);
     if (!company) {
-      return res.status(404).json({ error: "Landing no encontrada" });
+      return res
+        .status(404)
+        .json({ error: "Landing no encontrada", redirect_to_main: true });
+    }
+
+    if (!landingTemplate) {
+      return res.status(404).json({
+        error: "La empresa no tiene landing configurada",
+        redirect_to_main: true,
+      });
     }
 
     const [services, professionals] = await Promise.all([
@@ -224,6 +268,7 @@ router.get("/landing/:slug", async (req, res) => {
         id: company.id_empresa,
         name: company.nombre_comercial,
         slug: company.slug,
+        landing_template: landingTemplate,
         whatsappNumber: company.whatsapp_number || "",
         whatsappConnected: Boolean(company.conectado),
       },
@@ -253,9 +298,24 @@ router.get("/landing/:slug/availability", async (req, res) => {
       });
     }
 
-    const company = await findCompanyBySlug(slug);
+    if (!isValidIsoDate(date)) {
+      return res.status(400).json({
+        error: "La fecha debe estar en formato YYYY-MM-DD",
+      });
+    }
+
+    const { company, landingTemplate } = await getLandingReadyCompany(slug);
     if (!company) {
-      return res.status(404).json({ error: "Landing no encontrada" });
+      return res
+        .status(404)
+        .json({ error: "Landing no encontrada", redirect_to_main: true });
+    }
+
+    if (!landingTemplate) {
+      return res.status(404).json({
+        error: "La empresa no tiene landing configurada",
+        redirect_to_main: true,
+      });
     }
 
     const slots = await listAvailableSlots({
@@ -312,9 +372,30 @@ router.post("/landing/:slug/appointments", async (req, res) => {
       });
     }
 
-    const company = await findCompanyBySlug(slug);
+    if (!isValidIsoDate(date)) {
+      return res.status(400).json({
+        error: "La fecha debe estar en formato YYYY-MM-DD",
+      });
+    }
+
+    if (!isValidTime(time)) {
+      return res.status(400).json({
+        error: "La hora debe estar en formato HH:MM",
+      });
+    }
+
+    const { company, landingTemplate } = await getLandingReadyCompany(slug);
     if (!company) {
-      return res.status(404).json({ error: "Landing no encontrada" });
+      return res
+        .status(404)
+        .json({ error: "Landing no encontrada", redirect_to_main: true });
+    }
+
+    if (!landingTemplate) {
+      return res.status(404).json({
+        error: "La empresa no tiene landing configurada",
+        redirect_to_main: true,
+      });
     }
 
     const [serviceRows] = await pool.execute(
@@ -389,7 +470,7 @@ router.post("/landing/:slug/appointments", async (req, res) => {
       clientEmail,
     });
 
-    const appointmentDateTime = `${date} ${time}:00`;
+    const appointmentDateTime = buildAppointmentDateTime(date, time);
     const includeOrigin = await hasTurnoOrigenColumn(connection);
     const turnoQuery = includeOrigin
       ? `INSERT INTO TURNO (id_cliente, id_prestador, id_servicio, fecha_hora, estado, origen)
