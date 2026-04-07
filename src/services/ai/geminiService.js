@@ -942,15 +942,11 @@ const createTools = ({ companyContext, customerPhone }) => {
             .optional()
             .describe("Fecha desde (YYYY-MM-DD)."),
           endDate: z.string().optional().describe("Fecha hasta (YYYY-MM-DD)."),
-<<<<<<< HEAD
-          limit: z.number().optional().default(150).describe("Máximo de resultados (1-200)."),
-=======
           limit: z
             .number()
             .optional()
             .default(30)
-            .describe("MÃƒÆ’Ã‚Â¡ximo de resultados (1-40)."),
->>>>>>> master
+            .describe("Maximo de resultados (1-40)."),
         }),
       },
     ),
@@ -1465,13 +1461,6 @@ const runWhatsappAssistant = async ({
     };
   }
 
-<<<<<<< HEAD
-  const tools = createTools({ companyContext, customerPhone });
-  const graph = createGraph(tools);
-  const preferredName = resolvePreferredContactName(incomingMessage?.pushName);
-  const systemPrompt = buildAssistantPrompt(companyContext, preferredName);
-  const temporalRef = `Referencia temporal: hoy es ${companyContext.currentDayName} ${companyContext.currentDate} y la hora actual es ${companyContext.currentTime} (${companyContext.timezone}).`;
-=======
   const { sessionState, history } = getActiveWhatsappHistory({
     instanceName,
     customerPhone,
@@ -1496,7 +1485,6 @@ const runWhatsappAssistant = async ({
     currentTime: realtimeContext.localTime,
   });
   const temporalRef = buildTemporalReferenceText(realtimeContext);
->>>>>>> master
   const contactRef = preferredName
     ? `Este cliente figura como '${preferredName}' en WhatsApp.`
     : "No hay nombre de contacto disponible, usa trato neutro.";

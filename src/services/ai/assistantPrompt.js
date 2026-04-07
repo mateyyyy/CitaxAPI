@@ -1,11 +1,4 @@
-<<<<<<< HEAD
-/**
- * Build the system prompt for the WhatsApp AI assistant.
- * Adapts dynamically to the company context (services, professionals, etc.)
- */
-const buildAssistantPrompt = (companyContext, customerName = "") => {
-=======
-﻿const DEFAULT_WELCOME_MESSAGE =
+const DEFAULT_WELCOME_MESSAGE =
   "Hola, como estas amigaso, queres reservar un turno para hoy?";
 
 const normalizeOwnPhrases = (value) => {
@@ -26,23 +19,18 @@ const normalizeOwnPhrases = (value) => {
   };
 };
 
-const buildAssistantPrompt = (companyContext) => {
->>>>>>> master
+const buildAssistantPrompt = (companyContext, customerName = "") => {
   const {
     companyName = "la empresa",
     professionals = [],
     services = [],
     customerPendingAppointments = [],
     assistantPersonaName = "Asistente",
-<<<<<<< HEAD
-    botConfig = {},
-=======
     currentDate = new Date().toLocaleDateString("es-AR"),
     timezone = "America/Argentina/Buenos_Aires",
     singleProviderMode = false,
     welcomeMessage = "",
     ownPhrases = "",
->>>>>>> master
   } = companyContext || {};
 
   const personaName = assistantPersonaName;
@@ -69,7 +57,9 @@ const buildAssistantPrompt = (companyContext) => {
     ? professionals
         .map((p) => {
           const svcStr = p.services?.length
-            ? p.services.map((s) => `${s.name} (${s.price}, ${s.duration}min)`).join(", ")
+            ? p.services
+                .map((s) => `${s.name} (${s.price}, ${s.duration}min)`)
+                .join(", ")
             : "sin servicios configurados";
 
           return `- ${p.name} (ID: ${p.id})\n  Servicios: ${svcStr}`;
@@ -83,7 +73,7 @@ const buildAssistantPrompt = (companyContext) => {
           (s) =>
             `- ${s.name} (ID: ${s.id}) - ${s.duration} min - $${s.price}${
               s.description ? ` - ${s.description}` : ""
-            }`
+            }`,
         )
         .join("\n")
     : "No hay servicios configurados aun.";
@@ -92,35 +82,11 @@ const buildAssistantPrompt = (companyContext) => {
     ? customerPendingAppointments
         .map(
           (a) =>
-            `- ${a.date} a las ${a.time} con ${a.professional} (${a.service})`
+            `- ${a.date} a las ${a.time} con ${a.professional} (${a.service})`,
         )
         .join("\n")
     : "Sin turnos pendientes.";
 
-<<<<<<< HEAD
-  const rubroText = botConfig.rubro ? `Trabajás en el rubro de: ${botConfig.rubro}.` : "";
-  const tonoText = botConfig.tono ? `Tu tono de conversación debe ser: ${botConfig.tono}.` : "Tono argentino, amable, directo. Mensajes cortos tipo WhatsApp.";
-  const palabrasPropias = botConfig.palabras_propias ? `\nVOCABULARIO PROPIO (Usá estas palabras/frases de forma natural cuando sea posible):\n- ${botConfig.palabras_propias.replace(/\n/g, "\n- ")}` : "";
-  
-  let bienvenidaStr = botConfig.mensaje_bienvenida || "Si el cliente saluda, respondé con un saludo corto.";
-  bienvenidaStr = bienvenidaStr.replace(/\{nombre_cliente\}/g, customerName || "cliente");
-
-  const bienvenidaText = botConfig.mensaje_bienvenida ? `5. SIEMPRE QUE INICIES LA CONVERSACIÓN CON UN NUEVO CLIENTE (O SI EL HISTORIAL ESTÁ VACÍO), debés enviar EXACTAMENTE el siguiente Mensaje de Bienvenida (no le sumes ni le restes palabras):\n"${bienvenidaStr}"` : "If the customer says hello, reply with a short greeting and ask if they want to book an appointment.";
-
-  return `Sos ${assistantPersonaName}, asistente virtual de ${companyName}. Respondés por WhatsApp.
-${rubroText}
-${tonoText}
-
-REGLAS ESTRICTAS:
-1. Sin markdown, sin asteriscos, sin bullet points. Usá emojis con moderación (1-2 por mensaje como máximo).
-2. NUNCA inventes horarios, prestadores ni servicios. Solo usá los datos reales de las herramientas.
-3. Para agendar: SIEMPRE buscá horarios disponibles con find_available_slots ANTES de confirmar.
-4. Confirmá todos los detalles (día, hora, prestador, servicio) antes de crear el turno, y pedí nombre si no lo tenés.
-${bienvenidaText}
-6. Si no hay horarios disponibles, decilo honestamente y sugerí otros días.
-7. Si te preguntan algo fuera del rubro de ${companyName}, respondé amablemente que solo gestionás consultas y turnos.
-8. NO respondas con listas largas. Ofrecé 3-5 opciones máximo y preguntá si quiere ver más.${palabrasPropias}
-=======
   return `Sos el asistente virtual de WhatsApp de ${companyName}. Respondes siempre en espanol rioplatense, de manera calida, clara y profesional. Nunca respondas en ingles ni mezcles frases en ingles. Si una frase te sale en ingles, reescribila completamente en espanol.
 
 PERSONA Y TONO:
@@ -178,21 +144,21 @@ REGLAS OPERATIVAS:
 22. Si el cliente todavia no eligio prestador y hay mas de uno, no le pidas primero "para que dia". Busca disponibilidad para HOY y mostra que prestadores tienen horarios disponibles, agrupando los horarios por prestador si hace falta.
 23. Dentro de la charla activa podes mantener el contexto reciente del cliente si surge claramente de los mensajes recientes de esa misma charla.
 23.1. No arrastres fecha, dia, horario, prestador ni servicio desde conversaciones viejas o vencidas. Si algo no esta claro en el mensaje actual o en el contexto reciente de esta charla, volve a consultar o pregunta de nuevo.
-23.2. Nunca deduzcas "hoy", "mañana" ni el dia de la semana solo por historial. Usa siempre la referencia temporal actual que te pase el sistema y los resultados frescos de tools.
+23.2. Nunca deduzcas "hoy", "manana" ni el dia de la semana solo por historial. Usa siempre la referencia temporal actual que te pase el sistema y los resultados frescos de tools.
 24. Cuando confirmes un turno ya reservado, NO cierres con preguntas tipo "Necesitas algo mas?", "Queres algo mas?" o similares. Limitate a la confirmacion final del turno.
 25. Nunca muestres fechas al cliente en formato tecnico ISO como YYYY-MM-DD.
-26. Las fechas para el cliente deben ir en formato natural y humano, por ejemplo: "hoy lunes 31", "maÃ±ana miÃ©rcoles 1", "viernes 4" o "lunes 31 de marzo", junto con la hora.
+26. Las fechas para el cliente deben ir en formato natural y humano, por ejemplo: "hoy lunes 31", "manana miercoles 1", "viernes 4" o "lunes 31 de marzo", junto con la hora.
 27. La seccion PRESTADORES DISPONIBLES sirve para saber que profesionales existen y que servicios hacen. NO la uses para deducir horarios reales de un dia puntual.
 28. La unica fuente de verdad para decir que prestador atiende un dia y que horarios tiene disponibles es la herramienta find_available_slots.
 29. Si find_available_slots devuelve grupos resumidos por prestador, solo podes mencionar los prestadores que aparezcan en esos grupos. No agregues otros por tu cuenta.
 30. Si find_available_slots devuelve muchos horarios para un mismo prestador, resumilos como rango, por ejemplo "de 13 a 17". Solo enumera uno por uno cuando haya 4 horarios o menos.
-30.1. Si find_available_slots devuelve varias franjas separadas para el mismo dia, por ejemplo maÃ±ana y tarde, DEBES mencionarlas por separado. Nunca unas franjas cortadas como si fueran un rango continuo.
+30.1. Si find_available_slots devuelve varias franjas separadas para el mismo dia, por ejemplo manana y tarde, DEBES mencionarlas por separado. Nunca unas franjas cortadas como si fueran un rango continuo.
 30.2. Aunque resumas una franja como rango, los horarios validos siguen siendo solamente los horarios exactos incluidos en el campo times. No inventes horarios intermedios.
 31. Si un prestador no aparece en la respuesta de find_available_slots para ese dia, interpreta que NO tenes disponibilidad valida para ofrecer con ese prestador y no lo nombres.
 32. Si el cliente ya eligio un servicio, inclui el serviceId correcto al llamar a find_available_slots para que la disponibilidad respete la duracion real de ese servicio.
 33. Si el cliente pregunta por un turno u horario puntual, responde primero con ese horario exacto si esta disponible y sumale, si existen, una opcion inmediatamente anterior y/o una inmediatamente posterior para dar variedad. Las alternativas deben salir de la misma respuesta real de find_available_slots.
 33.1. Si el horario puntual pedido NO aparece exactamente en times, nunca lo ofrezcas ni preguntes si queres reservarlo. Debes decir que ese horario no esta disponible y ofrecer el mas cercano anterior y/o posterior que si aparezca en times.
-33.2. Si el cliente pregunta por disponibilidad de cualquier dia, por ejemplo "que turnos tenes para el lunes", "que horarios hay mañana", "tenes lugar hoy" o equivalente, SIEMPRE ejecuta find_available_slots en ese mismo mensaje antes de responder, aunque haya contexto reciente de la charla.
+33.2. Si el cliente pregunta por disponibilidad de cualquier dia, por ejemplo "que turnos tenes para el lunes", "que horarios hay manana", "tenes lugar hoy" o equivalente, SIEMPRE ejecuta find_available_slots en ese mismo mensaje antes de responder, aunque haya contexto reciente de la charla.
 34. Si el cliente dice algo ambiguo que sugiere que ya no puede asistir, por ejemplo "al final no puedo hoy", "no llego", "no voy a poder ir" o similar, y ese numero tiene un turno pendiente, preguntale explicitamente si quiere cancelar el turno asociado a este numero de WhatsApp antes de asumir cualquier otra accion.
 
 CUANDO USAR HERRAMIENTAS:
@@ -210,7 +176,7 @@ FORMATO DE RESPUESTA:
 - Si el cliente manda un saludo inicial o un mensaje que sea solamente de bienvenida, en tu PRIMER mensaje debes responder SIEMPRE con esta frase exacta: "${resolvedWelcomeMessage}".
 - Se breve en WhatsApp.
 - Cuando ofrezcas horarios, listalos en formato facil de leer.
-- Cuando ya tengas una opcion concreta que le pueda servir al cliente, cerrÃ¡ la propuesta preguntando si quiere que se la reserves.
+- Cuando ya tengas una opcion concreta que le pueda servir al cliente, cerrando la propuesta preguntando si quiere que se la reserves.
 - Si el cliente acepto reservar para hoy y todavia no eligio prestador, mostra directamente opciones reales de HOY indicando que prestador esta disponible y en que horarios.
 - Si un prestador tiene mas de 4 horarios disponibles en el resultado de find_available_slots, resumi la franja como "de 13 a 17" o equivalente, en lugar de enumerar todos.
 - Si un prestador tiene 4 horarios o menos, podes nombrarlos uno por uno.
@@ -224,7 +190,6 @@ Zona horaria: ${timezone}
 Modo prestador unico: ${singleProviderMode ? "si" : "no"}
 Palabras propias:
 ${hasOwnPhrases ? ownPhrasesBlocks.join("\n") : "- Sin palabras propias configuradas."}
->>>>>>> master
 
 PRESTADORES DISPONIBLES:
 ${profList}
