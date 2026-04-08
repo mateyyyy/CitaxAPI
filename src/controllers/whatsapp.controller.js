@@ -241,7 +241,10 @@ const handleWebhook = async (req, res, next) => {
       return;
     }
 
-    if (payload?.event === "messages.upsert") {
+    if (
+      payload?.event === "messages.upsert" ||
+      payload?.event === "messages.update"
+    ) {
       const { processIncomingMessage } = require("../services/evolution.service");
 
       processIncomingMessage({ instanceName, webhookData: payload }).catch((err) => {

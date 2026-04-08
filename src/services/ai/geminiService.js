@@ -119,7 +119,9 @@ const setWhatsappSessionState = ({
 };
 
 const clearWhatsappSessionState = ({ instanceName, customerPhone }) => {
-  whatsappSessionState.delete(getConversationKey({ instanceName, customerPhone }));
+  whatsappSessionState.delete(
+    getConversationKey({ instanceName, customerPhone }),
+  );
 };
 
 const getActiveWhatsappHistory = ({ instanceName, customerPhone }) => {
@@ -194,14 +196,18 @@ const buildRealtimeTemporalContext = (
   const localDayName = new Intl.DateTimeFormat("es-AR", {
     timeZone: timezone,
     weekday: "long",
-  }).format(now).toLowerCase();
+  })
+    .format(now)
+    .toLowerCase();
   const localDateLong = new Intl.DateTimeFormat("es-AR", {
     timeZone: timezone,
     weekday: "long",
     day: "numeric",
     month: "long",
     year: "numeric",
-  }).format(now).toLowerCase();
+  })
+    .format(now)
+    .toLowerCase();
   const tomorrowDate = new Intl.DateTimeFormat("en-CA", {
     timeZone: timezone,
     year: "numeric",
@@ -214,14 +220,18 @@ const buildRealtimeTemporalContext = (
     day: "numeric",
     month: "long",
     year: "numeric",
-  }).format(tomorrow).toLowerCase();
+  })
+    .format(tomorrow)
+    .toLowerCase();
   const yesterdayDateLong = new Intl.DateTimeFormat("es-AR", {
     timeZone: timezone,
     weekday: "long",
     day: "numeric",
     month: "long",
     year: "numeric",
-  }).format(yesterday).toLowerCase();
+  })
+    .format(yesterday)
+    .toLowerCase();
 
   return {
     isoUtc,
@@ -471,10 +481,7 @@ const normalizeAssistantText = (value) =>
     .replace(/\s+/g, " ")
     .trim();
 
-const renderWelcomeMessageTemplate = ({
-  template = "",
-  contactName = "",
-}) => {
+const renderWelcomeMessageTemplate = ({ template = "", contactName = "" }) => {
   const rendered = String(template || "")
     .trim()
     .replace(/\{nombre_cliente\}/gi, String(contactName || "").trim())
@@ -490,10 +497,12 @@ const pickConfiguredSaludo = (ownPhrases = {}) => {
   const raw = String(ownPhrases?.saludos || "").trim();
   if (!raw) return "";
 
-  return raw
-    .split(/\r?\n|[;|]+/)
-    .map((item) => String(item || "").trim())
-    .filter(Boolean)[0] || "";
+  return (
+    raw
+      .split(/\r?\n|[;|]+/)
+      .map((item) => String(item || "").trim())
+      .filter(Boolean)[0] || ""
+  );
 };
 
 const buildFriendlyGreetingPrefix = (companyContext = {}, contactName = "") => {
@@ -518,10 +527,7 @@ const buildFriendlyGreetingPrefix = (companyContext = {}, contactName = "") => {
   return "Hola";
 };
 
-const getConfiguredWelcomeMessage = (
-  companyContext = {},
-  contactName = "",
-) => {
+const getConfiguredWelcomeMessage = (companyContext = {}, contactName = "") => {
   const configuredMessage = renderWelcomeMessageTemplate({
     template: companyContext?.welcomeMessage,
     contactName,
@@ -542,10 +548,7 @@ const getConfiguredWelcomeMessage = (
 const LAUGHTER_OPENING_REGEX =
   /^\s*((?:ja){2,}|jaja(?:ja+)?|jeje(?:je+)?|jojo(?:jo+)?|ajaj(?:a+)?)\s*[,;:.!-]*\s*/i;
 
-const sanitizeAssistantOpening = ({
-  reply = "",
-  incomingText = "",
-}) => {
+const sanitizeAssistantOpening = ({ reply = "", incomingText = "" }) => {
   const originalReply = String(reply || "").trim();
   if (!originalReply) return "";
 
@@ -559,7 +562,9 @@ const sanitizeAssistantOpening = ({
     return originalReply;
   }
 
-  const sanitizedReply = originalReply.replace(LAUGHTER_OPENING_REGEX, "").trim();
+  const sanitizedReply = originalReply
+    .replace(LAUGHTER_OPENING_REGEX, "")
+    .trim();
   return sanitizedReply || originalReply;
 };
 
@@ -582,7 +587,10 @@ const ensureFriendlyFirstReply = ({
     return String(reply || "").trim();
   }
 
-  const greetingPrefix = buildFriendlyGreetingPrefix(companyContext, contactName);
+  const greetingPrefix = buildFriendlyGreetingPrefix(
+    companyContext,
+    contactName,
+  );
   if (!greetingPrefix) {
     return String(reply || "").trim();
   }
@@ -649,6 +657,41 @@ const isGreetingOnlyMessage = (value) => {
   return greetingPhrases.some((phrase) => normalized.includes(phrase));
 };
 
+const isStrictGreetingMessage = (value) => {
+  const normalized = normalizeAssistantText(value);
+  if (!normalized) return false;
+
+  if (!isGreetingOnlyMessage(normalized)) return false;
+
+  const hasQuestion = normalized.includes("?") || normalized.includes("¿");
+  if (hasQuestion) return false;
+
+  const words = normalized.split(" ").filter(Boolean);
+  if (!words.length || words.length > 4) return false;
+
+  const allowedSmallTalkTokens = new Set([
+    "hola",
+    "holaa",
+    "holaaa",
+    "holi",
+    "buen",
+    "dia",
+    "buenas",
+    "tardes",
+    "noches",
+    "que",
+    "onda",
+    "como",
+    "estas",
+    "andas",
+    "va",
+    "todo",
+    "bien",
+  ]);
+
+  return words.every((word) => allowedSmallTalkTokens.has(word));
+};
+
 const shouldUseConfiguredWelcomeReply = ({
   history = [],
   hasPriorReply,
@@ -662,7 +705,7 @@ const shouldUseConfiguredWelcomeReply = ({
   const alreadyStartedConversation =
     typeof hasPriorReply === "boolean" ? hasPriorReply : history.length > 0;
 
-  return !alreadyStartedConversation && isGreetingOnlyMessage(incomingText);
+  return !alreadyStartedConversation && isStrictGreetingMessage(incomingText);
 };
 
 const isClosingOnlyMessage = (value) => {
@@ -833,6 +876,231 @@ const isAvailabilityLookupIntent = (value) => {
     normalized.includes("que tenes para") ||
     normalized.includes("que me ofreces para")
   );
+};
+
+const APPOINTMENT_DOMAIN_KEYWORDS = [
+  "turno",
+  "turnos",
+  "reserv",
+  "agend",
+  "sacar",
+  "cancel",
+  "reprogram",
+  "cambiar",
+  "mover",
+  "horario",
+  "horarios",
+  "disponibilidad",
+  "disponible",
+  "servicio",
+  "servicios",
+  "precio",
+  "promo",
+  "promocion",
+  "hay lugar",
+  "atencion",
+  "atienden",
+  "atendes",
+];
+
+const APPOINTMENT_CONTINUATION_TOKENS = new Set([
+  "si",
+  "sí",
+  "dale",
+  "ok",
+  "oka",
+  "okey",
+  "oki",
+  "de una",
+  "listo",
+  "genial",
+  "perfecto",
+  "confirmo",
+  "confirmado",
+]);
+
+const hasAppointmentDomainKeywords = (value) => {
+  const normalized = normalizeAssistantText(value);
+  if (!normalized) return false;
+
+  if (
+    APPOINTMENT_DOMAIN_KEYWORDS.some((keyword) => normalized.includes(keyword))
+  ) {
+    return true;
+  }
+
+  const hasTimeOrDatePattern =
+    /\b\d{1,2}:\d{2}\b/.test(normalized) ||
+    /\b\d{1,2}\s?(?:hs|h)\b/.test(normalized) ||
+    /\b\d{1,2}[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?\b/.test(normalized);
+
+  if (!hasTimeOrDatePattern) {
+    return false;
+  }
+
+  return (
+    normalized.includes("turn") ||
+    normalized.includes("reserv") ||
+    normalized.includes("agend") ||
+    normalized.includes("horar") ||
+    normalized.includes("dispon")
+  );
+};
+
+const isShortAppointmentContinuation = (value) => {
+  const normalized = normalizeAssistantText(value);
+  if (!normalized) return false;
+
+  const words = normalized.split(" ").filter(Boolean);
+  if (!words.length || words.length > 4) return false;
+
+  if (APPOINTMENT_CONTINUATION_TOKENS.has(normalized)) {
+    return true;
+  }
+
+  return /^(si|sí|dale|ok|oka|okey|oki|listo|perfecto|genial)\b/.test(
+    normalized,
+  );
+};
+
+const looksLikeAppointmentFlowContext = ({
+  history = [],
+  lastAssistantReply = "",
+}) => {
+  const previousAssistantReply =
+    String(lastAssistantReply || "").trim() ||
+    extractAssistantReplyFromMessages(history).reply;
+
+  if (!previousAssistantReply) return false;
+
+  return (
+    looksLikeAppointmentConfirmation(previousAssistantReply) ||
+    hasAppointmentDomainKeywords(previousAssistantReply) ||
+    isAvailabilityLookupIntent(previousAssistantReply)
+  );
+};
+
+const isAppointmentRelatedInteractionHeuristic = ({
+  incomingText = "",
+  history = [],
+  lastAssistantReply = "",
+}) => {
+  if (
+    hasAppointmentDomainKeywords(incomingText) ||
+    isAvailabilityLookupIntent(incomingText)
+  ) {
+    return true;
+  }
+
+  return (
+    isShortAppointmentContinuation(incomingText) &&
+    looksLikeAppointmentFlowContext({ history, lastAssistantReply })
+  );
+};
+
+const parseIntentClassifierLabel = (value) => {
+  const normalized = normalizeAssistantText(value).toUpperCase();
+  if (normalized.includes("APPOINTMENT") || normalized.includes("TURNOS")) {
+    return "APPOINTMENT";
+  }
+  if (normalized.includes("OTHER") || normalized.includes("NO_TURNOS")) {
+    return "OTHER";
+  }
+  return "UNKNOWN";
+};
+
+const buildIntentClassifierContext = ({
+  history = [],
+  lastAssistantReply = "",
+}) => {
+  const recent = [...history]
+    .slice(-6)
+    .map((message) => {
+      const type =
+        typeof message?._getType === "function"
+          ? message._getType()
+          : "unknown";
+      const role =
+        type === "human" ? "cliente" : type === "ai" ? "bot" : "sistema";
+      const text = stringifyMessageContent(message?.content)
+        .replace(/\s+/g, " ")
+        .trim();
+      if (!text) return null;
+      return `${role}: ${text.slice(0, 220)}`;
+    })
+    .filter(Boolean)
+    .join("\n");
+
+  return {
+    recent,
+    lastReply: String(lastAssistantReply || "").trim(),
+  };
+};
+
+const classifyAppointmentIntentWithGemini = async ({
+  incomingText = "",
+  history = [],
+  lastAssistantReply = "",
+}) => {
+  const model = createGeminiModel();
+  const { recent, lastReply } = buildIntentClassifierContext({
+    history,
+    lastAssistantReply,
+  });
+
+  const response = await model.invoke([
+    new SystemMessage(
+      `Sos un clasificador de intencion para un bot de turnos por WhatsApp.
+Responde SOLO una palabra:
+- APPOINTMENT: si el mensaje actual esta relacionado con reservar/cancelar/reprogramar/consultar turnos, horarios o disponibilidad, o es una continuacion corta (ej: si, dale, ok) de una charla de turnos.
+- OTHER: si es charla social, tema personal, amigos/familia, o cualquier tema no relacionado con turnos.
+No agregues explicaciones.`,
+    ),
+    new HumanMessage(
+      `MENSAJE_ACTUAL:\n${String(incomingText || "").trim()}\n\nULTIMA_RESPUESTA_BOT:\n${lastReply || "(sin respuesta previa)"}\n\nCONTEXTO_RECIENTE:\n${recent || "(sin historial)"}`,
+    ),
+  ]);
+
+  const raw = stringifyMessageContent(response?.content).trim();
+  const label = parseIntentClassifierLabel(raw);
+  return {
+    label,
+    related: label === "APPOINTMENT",
+    raw,
+  };
+};
+
+const isAppointmentRelatedInteraction = async ({
+  incomingText = "",
+  history = [],
+  lastAssistantReply = "",
+}) => {
+  try {
+    const classification = await classifyAppointmentIntentWithGemini({
+      incomingText,
+      history,
+      lastAssistantReply,
+    });
+
+    if (classification.label !== "UNKNOWN") {
+      console.log("🧭 Clasificacion de intencion (Gemini):", {
+        label: classification.label,
+        raw: classification.raw.slice(0, 80),
+      });
+      return classification.related;
+    }
+  } catch (error) {
+    console.warn(
+      "⚠️ Fallo clasificacion de intencion con Gemini, usando heuristica local:",
+      error.message,
+    );
+  }
+
+  return isAppointmentRelatedInteractionHeuristic({
+    incomingText,
+    history,
+    lastAssistantReply,
+  });
 };
 
 const createGeminiModel = () => {
@@ -1011,7 +1279,8 @@ const createTools = ({ companyContext, customerPhone }) => {
       },
       {
         name: "get_appointments_by_day",
-        description: "Lista los turnos reservados para un dÃƒÆ’Ã‚Â­a especÃƒÆ’Ã‚Â­fico.",
+        description:
+          "Lista los turnos reservados para un dÃƒÆ’Ã‚Â­a especÃƒÆ’Ã‚Â­fico.",
         schema: z.object({
           date: z
             .string()
@@ -1098,7 +1367,9 @@ const createSupportTools = ({
           "Valida email y contraseÃƒÆ’Ã‚Â±a de empresa para asociar esta conversaciÃƒÆ’Ã‚Â³n.",
         schema: z.object({
           email: z.string().describe("Email de acceso de la empresa."),
-          password: z.string().describe("ContraseÃƒÆ’Ã‚Â±a de acceso de la empresa."),
+          password: z
+            .string()
+            .describe("ContraseÃƒÆ’Ã‚Â±a de acceso de la empresa."),
         }),
       },
     ),
@@ -1466,7 +1737,10 @@ const runWhatsappAssistant = async ({
     customerPhone,
   });
   const preferredName = resolvePreferredContactName(incomingMessage?.pushName);
-  const welcomeReply = getConfiguredWelcomeMessage(companyContext, preferredName);
+  const welcomeReply = getConfiguredWelcomeMessage(
+    companyContext,
+    preferredName,
+  );
   const realtimeContext = buildRealtimeTemporalContext(companyContext.timezone);
   const effectiveCompanyContext = {
     ...companyContext,
@@ -1490,7 +1764,7 @@ const runWhatsappAssistant = async ({
     : "No hay nombre de contacto disponible, usa trato neutro.";
   const phoneRef = `Telefono del cliente (no lo pidas): ${customerPhone}.`;
   const availabilityGuardRef = isAvailabilityLookupIntent(messageText)
-    ? 'En este mensaje el cliente esta pidiendo turnos, horarios o disponibilidad. Antes de responder, debes ejecutar find_available_slots en esta misma interaccion y responder solo con ese resultado actualizado.'
+    ? "En este mensaje el cliente esta pidiendo turnos, horarios o disponibilidad. Antes de responder, debes ejecutar find_available_slots en esta misma interaccion y responder solo con ese resultado actualizado."
     : "";
 
   if (
@@ -1535,6 +1809,20 @@ const runWhatsappAssistant = async ({
     return {
       enabled: true,
       text: welcomeReply,
+      companyContext: effectiveCompanyContext,
+    };
+  }
+
+  if (
+    !(await isAppointmentRelatedInteraction({
+      incomingText: messageText,
+      history,
+      lastAssistantReply: sessionState.lastAssistantReply,
+    }))
+  ) {
+    return {
+      enabled: false,
+      reason: "Mensaje fuera de alcance (no relacionado a turnos).",
       companyContext: effectiveCompanyContext,
     };
   }
@@ -1729,6 +2017,7 @@ module.exports = {
     shouldSilenceClosingReply,
     shouldUseConfiguredWelcomeReply,
     isAvailabilityLookupIntent,
+    isAppointmentRelatedInteraction,
     buildFriendlyGreetingPrefix,
     ensureFriendlyFirstReply,
     buildRealtimeTemporalContext,
