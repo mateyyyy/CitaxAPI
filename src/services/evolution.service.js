@@ -674,6 +674,8 @@ const WHATSAPP_PENDING_SURVEY_TTL_MS =
   Number(process.env.WHATSAPP_PENDING_SURVEY_TTL_MINUTES || 20) * 60 * 1000;
 const WHATSAPP_OPTED_IN_TTL_MS =
   Number(process.env.WHATSAPP_OPTED_IN_TTL_HOURS || 12) * 60 * 60 * 1000;
+const WHATSAPP_FLOW_INACTIVITY_TTL_MS =
+  Number(process.env.WHATSAPP_FLOW_INACTIVITY_TTL_MINUTES || 60) * 60 * 1000;
 const WHATSAPP_NO_REPLY_MUTE_MS =
   Number(process.env.WHATSAPP_NO_REPLY_MUTE_HOURS || 12) * 60 * 60 * 1000;
 const WHATSAPP_CONVERSATION_LOG_ENABLED =
@@ -1554,6 +1556,19 @@ const processIncomingMessage = async ({ instanceName, webhookData }) => {
       activeGateState = null;
     }
 
+    if (
+      activeGateState &&
+      activeGateState?.status !== "muted" &&
+      now - Number(activeGateState.updatedAt || 0) >
+        WHATSAPP_FLOW_INACTIVITY_TTL_MS
+    ) {
+      whatsappConversationGate.delete(gateKey);
+      activeGateState = null;
+      console.log(
+        `♻️ Flujo reiniciado por inactividad | from=${maskPhoneForLog(normalized.phoneNumber)}`,
+      );
+    }
+
     if (activeGateState?.status === "needs_survey") {
       // Reservar el gate de forma síncrona ANTES del await para evitar
       // que webhooks concurrentes del mismo usuario envíen múltiples polls.
@@ -1756,6 +1771,14 @@ const processIncomingMessage = async ({ instanceName, webhookData }) => {
         `⏭️ Sin contenido procesable | from=${maskPhoneForLog(normalized.phoneNumber)} | type=${normalized.rawType || normalized.messageType}`,
       );
       continue;
+    }
+
+    if (activeGateState?.status === "opted-in") {
+      whatsappConversationGate.set(gateKey, {
+        ...activeGateState,
+        status: "opted-in",
+        updatedAt: now,
+      });
     }
 
     enqueueIncomingMessageForAssistant({ instanceName, normalized });

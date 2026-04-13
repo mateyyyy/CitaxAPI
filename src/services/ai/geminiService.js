@@ -484,6 +484,31 @@ const extractExecutedToolNames = (messages = []) => {
   return [...new Set(names)];
 };
 
+const extractCurrentTurnToolNames = ({ messages = [], incomingText = "" }) => {
+  const list = Array.isArray(messages) ? messages : [];
+  const normalizedIncoming = String(incomingText || "").trim();
+
+  const lastHumanIndex = [...list]
+    .map((message, index) => ({
+      index,
+      type: typeof message?._getType === "function" ? message._getType() : "",
+      text: stringifyMessageContent(message?.content).trim(),
+    }))
+    .reverse()
+    .find((entry) => {
+      if (entry.type !== "human") return false;
+      if (!normalizedIncoming) return true;
+      return entry.text === normalizedIncoming;
+    })?.index;
+
+  const scope =
+    Number.isInteger(lastHumanIndex) && lastHumanIndex >= 0
+      ? list.slice(lastHumanIndex + 1)
+      : list;
+
+  return extractExecutedToolNames(scope);
+};
+
 const normalizeAssistantText = (value) =>
   String(value || "")
     .toLowerCase()
@@ -2020,7 +2045,10 @@ const runWhatsappAssistant = async ({
   });
 
   const { reply } = extractAssistantReplyFromMessages(result.messages);
-  const usedTools = extractExecutedToolNames(result.messages);
+  const usedTools = extractCurrentTurnToolNames({
+    messages: result.messages,
+    incomingText: messageText,
+  });
   const hadPriorReply = Boolean(sessionState.lastAssistantReply);
   let finalReply = sanitizeNonReplyOutput(
     ensureFriendlyFirstReply({

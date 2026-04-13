@@ -65,7 +65,11 @@ const MIN_BOOKING_LEAD_MINUTES = Number(
   process.env.MIN_BOOKING_LEAD_MINUTES || "20",
 );
 
-const isSlotStillBookable = ({ slotStart, slotEnd, now = getNowInTimezone() }) => {
+const isSlotStillBookable = ({
+  slotStart,
+  slotEnd,
+  now = getNowInTimezone(),
+}) => {
   if (!(slotEnd instanceof Date) || Number.isNaN(slotEnd.getTime()))
     return false;
   if (!(now instanceof Date) || Number.isNaN(now.getTime())) return false;
@@ -339,7 +343,7 @@ const listAvailableSlots = async ({
   const existingTurnos = await prisma.tURNO.findMany({
     where: {
       id_prestador: { in: prestadores.map((p) => p.id_prestador) },
-      estado: { in: ["pendiente", "confirmado"] },
+      estado: "confirmado",
       fecha_hora: {
         gte: new Date(`${normalizedStart}T00:00:00Z`),
         lte: new Date(`${normalizedEnd}T23:59:59Z`),
@@ -563,7 +567,7 @@ const createAppointmentFromAssistant = async ({
   const existing = await prisma.tURNO.findFirst({
     where: {
       id_prestador: professionalId,
-      estado: { in: ["pendiente", "confirmado"] },
+      estado: "confirmado",
       fecha_hora: {
         gte: fechaHora,
         lt: endTime,
@@ -588,6 +592,23 @@ const createAppointmentFromAssistant = async ({
       fecha_hora: fechaHora,
       estado: "confirmado",
       origen: "whatsapp",
+    },
+  });
+
+  await prisma.tURNO.updateMany({
+    where: {
+      id_prestador: professionalId,
+      estado: "pendiente",
+      fecha_hora: {
+        gte: fechaHora,
+        lt: endTime,
+      },
+      NOT: {
+        id_turno: turno.id_turno,
+      },
+    },
+    data: {
+      estado: "cancelado",
     },
   });
 
