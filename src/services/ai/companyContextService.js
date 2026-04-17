@@ -424,7 +424,7 @@ const listAvailableSlots = async ({
   return slots;
 };
 
-// â”€â”€â”€ Find or create client â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Find or create client ────────────────────────────────────────────────────
 const findOrCreateClient = async ({ companyId, clientName, clientPhone }) => {
   const normalizedPhone = normalizePhone(clientPhone);
   const normalizedName = normalizeClientName(clientName);
@@ -461,10 +461,11 @@ const findOrCreateClient = async ({ companyId, clientName, clientPhone }) => {
   });
 
   if (existing) {
-    if (
-      normalizedName &&
-      normalizedName !== String(existing.nombre_wa || "").trim()
-    ) {
+    // Solo actualizar el nombre si el cliente NO tiene nombre aún.
+    // NUNCA sobreescribir un nombre existente, ya que eso corrompe
+    // el nombre en todos los turnos previos vinculados a ese cliente.
+    const currentName = String(existing.nombre_wa || "").trim();
+    if (!currentName && normalizedName) {
       return prisma.cLIENTE.update({
         where: { id_cliente: existing.id_cliente },
         data: { nombre_wa: normalizedName },

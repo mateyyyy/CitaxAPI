@@ -108,6 +108,36 @@ const createInstanceQr = async (req, res, next) => {
       }
     }
 
+    // ── Wait for QR if not ready yet (up to ~15s) ──────────────────────
+    const MAX_QR_WAIT_MS = 15000;
+    const QR_POLL_INTERVAL_MS = 2000;
+    const qrReady = (qrPayload) =>
+      qrPayload && qrPayload.source && qrPayload.source !== "none";
+
+    if (!qrReady(result.qr) && result.instanceName) {
+      const deadline = Date.now() + MAX_QR_WAIT_MS;
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, QR_POLL_INTERVAL_MS));
+        const freshQr = getLatestQr(result.instanceName);
+        if (qrReady(freshQr)) {
+          result.qr = freshQr;
+          break;
+        }
+        // Also try re-fetching connection state in case QR came via webhook
+        try {
+          const state = await getSafeConnectionState(result.instanceName);
+          const resolvedState =
+            state?.instance?.state || state?.state || "unknown";
+          if (resolvedState === "open") {
+            result.connectionState = state;
+            break;
+          }
+        } catch (_) {
+          // ignore
+        }
+      }
+    }
+
     const status =
       result.connectionState?.instance?.state ||
       result.connectionState?.state ||
