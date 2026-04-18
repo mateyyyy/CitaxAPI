@@ -2,7 +2,7 @@ const {
   parseBotConfig,
 } = require("../services/singleProviderMode.service");
 
-const KNOWN_LANDING_TEMPLATES = new Set(["sergio-pereira"]);
+const KNOWN_LANDING_TEMPLATES = new Set(["sergio-pereira", "pepardo"]);
 
 const normalizeComparableText = (value) =>
   String(value || "")
@@ -22,6 +22,10 @@ const resolveImplicitLandingTemplate = ({ slug, nombre_comercial }) => {
 
   if (normalizedName.includes("sergio pereira")) {
     return "sergio-pereira";
+  }
+
+  if (normalizedSlug === "pepardo") {
+    return "pepardo";
   }
 
   return null;

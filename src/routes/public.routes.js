@@ -2,10 +2,14 @@ const express = require("express");
 const router = express.Router();
 const pool = require("../config/db");
 const { listAvailableSlots } = require("../services/ai/companyContextService");
-const { sendTextMessage } = require("../services/evolution.service");
+const { sendTextMessage, sendAppointmentConfirmationPoll } = require("../services/evolution.service");
 const { hasClienteEmailColumn } = require("../services/clientSchema.service");
 const { hasTurnoOrigenColumn } = require("../services/turnoSchema.service");
 const { resolveCompanyLandingTemplate } = require("../utils/companyLanding");
+
+const SUPPORT_INSTANCE_NAME = String(
+  process.env.SUPPORT_WHATSAPP_INSTANCE || "citax-support-whatsapp",
+).trim().toLowerCase();
 
 const normalizeSlug = (value) =>
   String(value || "")
@@ -162,19 +166,19 @@ const buildWhatsappNotification = ({
   turnoId,
 }) => {
   const lines = [
-    `Nueva solicitud de turno en ${companyName}.`,
+    `📋 *Nueva solicitud de turno* — ${companyName}`,
     "",
-    `Cliente: ${clientName}`,
-    `Telefono: ${clientPhone}`,
-    `Email: ${clientEmail || "No informado"}`,
-    `Servicio: ${serviceName}`,
-    `Profesional: ${professionalName}`,
-    `Fecha: ${formatAppointmentDate(date)}`,
-    `Hora: ${time}`,
+    `👤 *Cliente:* ${clientName}`,
+    `📞 *Teléfono:* ${clientPhone}`,
+    `📧 *Email:* ${clientEmail || "No informado"}`,
+    `✂️ *Servicio:* ${serviceName}`,
+    `👨‍💼 *Profesional:* ${professionalName}`,
+    `📅 *Fecha:* ${formatAppointmentDate(date)}`,
+    `🕐 *Hora:* ${time}`,
     "",
-    "Estado: pendiente de confirmacion.",
-    "Confirma el turno desde Citax antes de bloquear la agenda.",
-    `👉 Para confirmar este turno responda a este mensaje con: Confirmar ${turnoId}`,
+    `🔖 *Turno #${turnoId}*`,
+    "",
+    "⬇️ Respondé la encuesta de abajo para confirmar o rechazar este turno.",
   ];
 
   return lines.join("\n");
@@ -502,12 +506,14 @@ router.post("/landing/:slug/appointments", async (req, res) => {
     let notificationSent = false;
     let notificationError = "";
 
-    if (company.instance_name && company.whatsapp_number) {
-      console.log(`🔔 [NUEVO] Enviando notificacion WA | instance=${company.instance_name} | to=${company.whatsapp_number} | turnoId=${turnoResult.insertId}`);
+    if (company.whatsapp_number) {
+      console.log(`🔔 [NUEVO] Enviando poll confirmacion WA | instance=${SUPPORT_INSTANCE_NAME} | to=${company.whatsapp_number} | turnoId=${turnoResult.insertId}`);
       try {
-        await sendTextMessage(
-          company.whatsapp_number,
-          buildWhatsappNotification({
+        await sendAppointmentConfirmationPoll({
+          phoneNumber: company.whatsapp_number,
+          instanceName: SUPPORT_INSTANCE_NAME,
+          turnoId: turnoResult.insertId,
+          notificationText: buildWhatsappNotification({
             companyName: company.nombre_comercial,
             clientName,
             clientPhone,
@@ -518,8 +524,7 @@ router.post("/landing/:slug/appointments", async (req, res) => {
             time,
             turnoId: turnoResult.insertId,
           }),
-          company.instance_name
-        );
+        });
         notificationSent = true;
       } catch (error) {
         notificationError = error.response?.data?.message || error.message;

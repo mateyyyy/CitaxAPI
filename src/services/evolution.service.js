@@ -512,7 +512,163 @@ const sendPollMessage = async (phoneNumber, instanceName) => {
   };
 };
 
-// â”€â”€â”€ Extract messages from webhook payload â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Pending poll confirmations tracking ──────────────────────────────
+const pendingPollConfirmations = new Map();
+
+const POLL_CONFIRM_OPTION = "✅ Confirmar turno";
+const POLL_REJECT_OPTION = "❌ Rechazar turno";
+
+const sendAppointmentConfirmationPoll = async ({
+  phoneNumber,
+  instanceName,
+  turnoId,
+  notificationText,
+}) => {
+  const normalizedInstanceName = normalizeInstanceName(instanceName);
+  const number = String(phoneNumber).replace(/[^\d]/g, "");
+
+  // 1. Enviar texto con info del turno
+  await sendTextMessage(number, notificationText, normalizedInstanceName);
+
+  // 2. Enviar poll de confirmación
+  const pollName = `Turno #${turnoId} - ¿Confirmar?`;
+  const payloadCandidates = [
+    {
+      number,
+      name: pollName,
+      selectableCount: 1,
+      values: [POLL_CONFIRM_OPTION, POLL_REJECT_OPTION],
+    },
+    {
+      number,
+      title: pollName,
+      options: [POLL_CONFIRM_OPTION, POLL_REJECT_OPTION],
+      selectableCount: 1,
+    },
+  ];
+
+  let pollSent = false;
+  for (const payload of payloadCandidates) {
+    try {
+      await evolutionClient.post(
+        `/message/sendPoll/${normalizedInstanceName}`,
+        payload,
+      );
+      pollSent = true;
+      break;
+    } catch (error) {
+      console.warn("⚠️ Falló envío poll confirmación, intento siguiente:", error.message);
+    }
+  }
+
+  // Registrar la poll pendiente para poder asociar la respuesta al turno
+  pendingPollConfirmations.set(`${number}:${turnoId}`, {
+    turnoId,
+    phoneNumber: number,
+    instanceName: normalizedInstanceName,
+    pollName,
+    createdAt: Date.now(),
+  });
+
+  // Cleanup de polls viejas (>24h)
+  const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+  for (const [key, entry] of pendingPollConfirmations) {
+    if (Date.now() - entry.createdAt > ONE_DAY_MS) {
+      pendingPollConfirmations.delete(key);
+    }
+  }
+
+  if (!pollSent) {
+    // Fallback: indicar que responda con texto
+    console.warn(`⚠️ No se pudo enviar poll para turno #${turnoId}, se envió solo texto.`);
+  }
+
+  return { sent: true, pollSent, turnoId };
+};
+
+// ─── Handle appointment poll response ─────────────────────────────────
+const resolveAppointmentPollResponse = (normalized) => {
+  const raw = normalized?.raw || {};
+
+  // Self-contained string collector to avoid dependency on functions defined later
+  const collectAllStrings = (obj, bucket = []) => {
+    if (!obj || typeof obj !== "object") {
+      if (typeof obj === "string" && obj.trim()) bucket.push(obj.trim());
+      return bucket;
+    }
+    if (Array.isArray(obj)) {
+      obj.forEach((item) => collectAllStrings(item, bucket));
+      return bucket;
+    }
+    Object.values(obj).forEach((val) => collectAllStrings(val, bucket));
+    return bucket;
+  };
+
+  // Collect all strings from the raw message data
+  const allStrings = collectAllStrings(raw);
+  const normalizedStrings = allStrings.map((v) => v.toLowerCase());
+
+  const isConfirm = normalizedStrings.some((v) =>
+    v.includes("confirmar turno")
+  );
+  const isReject = normalizedStrings.some((v) =>
+    v.includes("rechazar turno")
+  );
+
+  if (!isConfirm && !isReject) return null;
+
+  return { action: isConfirm ? "confirm" : "reject" };
+};
+
+const handleAppointmentPollConfirmation = async (instanceName, normalized) => {
+  const normalizedInstanceName = normalizeInstanceName(instanceName);
+  const isSupportInstance = normalizedInstanceName === normalizeInstanceName(SUPPORT_INSTANCE_NAME);
+  if (!isSupportInstance) return false;
+
+  // Check if this is a poll response matching our confirmation poll
+  const pollResponse = resolveAppointmentPollResponse(normalized);
+  if (!pollResponse) return false;
+
+  const ownerPhone = normalized.phoneNumber;
+  console.log(`📊 Poll confirmación turno | from=${ownerPhone} | action=${pollResponse.action}`);
+
+  // Find the pending poll for this phone
+  let matchedEntry = null;
+  for (const [key, entry] of pendingPollConfirmations) {
+    if (key.startsWith(`${ownerPhone}:`)) {
+      matchedEntry = entry;
+      pendingPollConfirmations.delete(key);
+      break;
+    }
+  }
+
+  if (!matchedEntry) {
+    console.warn(`⚠️ No se encontró poll pendiente para ${ownerPhone}`);
+    return true; // Still consumed the message
+  }
+
+  const turnoId = matchedEntry.turnoId;
+
+  if (pollResponse.action === "confirm") {
+    await handleOwnerConfirmationCommand(instanceName, ownerPhone, turnoId);
+  } else {
+    // Reject
+    try {
+      await pool.execute("UPDATE TURNO SET estado = ? WHERE id_turno = ?", ["cancelado", turnoId]);
+      await sendTextMessage(
+        ownerPhone,
+        `❌ Turno #${turnoId} rechazado. El turno fue cancelado.`,
+        normalizedInstanceName
+      );
+    } catch (error) {
+      console.error("Error rechazando turno:", error.message);
+    }
+  }
+
+  return true;
+};
+
+// ─── Extract messages from webhook payload ──────────────────────────────
 const extractIncomingMessages = (webhookData) => {
   if (!webhookData) return [];
   const event = webhookData.event || webhookData.type || "";
@@ -1527,6 +1683,17 @@ const processIncomingMessage = async ({ instanceName, webhookData }) => {
       messageType: normalized.rawType || normalized.messageType,
     });
 
+    // ── Intercept appointment confirmation polls on support instance ────
+    if (!normalized.fromMe && !normalized.isGroup) {
+      const handled = await handleAppointmentPollConfirmation(instanceName, normalized);
+      if (handled) {
+        console.log(
+          `✅ Poll confirmación procesada | from=${maskPhoneForLog(normalized.phoneNumber)}`,
+        );
+        continue;
+      }
+    }
+
     // Skip groups, self-messages, or messages without phone
     if (normalized.isGroup) {
       verboseLog("⏭️ Ignorado: grupo");
@@ -1907,6 +2074,7 @@ module.exports = {
   processIncomingMessage,
   registerWebhook,
   resolveSurveyDecision,
+  sendAppointmentConfirmationPoll,
   sendTextMessage,
   storeLatestQr,
 };
