@@ -431,7 +431,9 @@ const disconnectInstance = async (instanceName) => {
 const sendTextMessage = async (phoneNumber, text, instanceName) => {
   const normalizedInstanceName = normalizeInstanceName(instanceName);
   const number = String(phoneNumber).replace(/[^\d]/g, "");
-  console.log(`📤 sendTextMessage | instance=${normalizedInstanceName} | to=${number} | textLen=${text?.length || 0}`);
+  console.log(
+    `📤 sendTextMessage | instance=${normalizedInstanceName} | to=${number} | textLen=${text?.length || 0}`,
+  );
   try {
     const response = await evolutionClient.post(
       `/message/sendText/${normalizedInstanceName}`,
@@ -445,9 +447,14 @@ const sendTextMessage = async (phoneNumber, text, instanceName) => {
     });
     return response.data;
   } catch (error) {
-    console.error(`❌ sendTextMessage FAILED | instance=${normalizedInstanceName} | to=${number}`);
+    console.error(
+      `❌ sendTextMessage FAILED | instance=${normalizedInstanceName} | to=${number}`,
+    );
     console.error("  status:", error.response?.status);
-    console.error("  data:", JSON.stringify(error.response?.data || {}, null, 2));
+    console.error(
+      "  data:",
+      JSON.stringify(error.response?.data || {}, null, 2),
+    );
     console.error("  url:", error.config?.baseURL + error.config?.url);
     throw error;
   }
@@ -664,7 +671,10 @@ const sendAppointmentConfirmationPoll = async ({
       pollSent = true;
       break;
     } catch (error) {
-      console.warn("⚠️ Falló envío poll confirmación, intento siguiente:", error.message);
+      console.warn(
+        "⚠️ Falló envío poll confirmación, intento siguiente:",
+        error.message,
+      );
     }
   }
 
@@ -688,7 +698,9 @@ const sendAppointmentConfirmationPoll = async ({
 
   if (!pollSent) {
     // Fallback: indicar que responda con texto
-    console.warn(`⚠️ No se pudo enviar poll para turno #${turnoId}, se envió solo texto.`);
+    console.warn(
+      `⚠️ No se pudo enviar poll para turno #${turnoId}, se envió solo texto.`,
+    );
   }
 
   return { sent: true, pollSent, turnoId };
@@ -707,7 +719,9 @@ const resolveAppointmentPollResponse = (normalized) => {
         bucket.push(value);
       }
       if (Array.isArray(value)) {
-        value.forEach((entry) => collectValuesByKeyRegex(entry, keyRegex, bucket));
+        value.forEach((entry) =>
+          collectValuesByKeyRegex(entry, keyRegex, bucket),
+        );
       } else if (value && typeof value === "object") {
         collectValuesByKeyRegex(value, keyRegex, bucket);
       }
@@ -758,7 +772,8 @@ const resolveAppointmentPollResponse = (normalized) => {
 
 const handleAppointmentPollConfirmation = async (instanceName, normalized) => {
   const normalizedInstanceName = normalizeInstanceName(instanceName);
-  const isSupportInstance = normalizedInstanceName === normalizeInstanceName(SUPPORT_INSTANCE_NAME);
+  const isSupportInstance =
+    normalizedInstanceName === normalizeInstanceName(SUPPORT_INSTANCE_NAME);
   if (!isSupportInstance) return false;
 
   // Check if this is a poll response matching our confirmation poll
@@ -766,7 +781,9 @@ const handleAppointmentPollConfirmation = async (instanceName, normalized) => {
   if (!pollResponse) return false;
 
   const ownerPhone = normalized.phoneNumber;
-  console.log(`📊 Poll confirmación turno | from=${ownerPhone} | action=${pollResponse.action}`);
+  console.log(
+    `📊 Poll confirmación turno | from=${ownerPhone} | action=${pollResponse.action}`,
+  );
 
   // Find the pending poll for this phone
   let matchedEntry = null;
@@ -795,11 +812,14 @@ const handleAppointmentPollConfirmation = async (instanceName, normalized) => {
   } else {
     // Reject
     try {
-      await pool.execute("UPDATE TURNO SET estado = ? WHERE id_turno = ?", ["cancelado", turnoId]);
+      await pool.execute("UPDATE TURNO SET estado = ? WHERE id_turno = ?", [
+        "cancelado",
+        turnoId,
+      ]);
       await sendTextMessage(
         ownerPhone,
         `❌ Turno #${turnoId} rechazado. El turno fue cancelado.`,
-        normalizedInstanceName
+        normalizedInstanceName,
       );
       const [rows] = await pool.execute(
         `SELECT t.fecha_hora, c.whatsapp_id, c.nombre_wa, s.nombre AS servicio_nombre,
@@ -1759,7 +1779,7 @@ const handleOwnerConfirmationCommand = async (
        JOIN SERVICIO s ON s.id_servicio = t.id_servicio
        WHERE t.id_turno = ? AND c.id_empresa = ?
        LIMIT 1`,
-      [turnoId, company.id_empresa]
+      [turnoId, company.id_empresa],
     );
 
     if (!turnoRows.length) {
@@ -1772,7 +1792,7 @@ const handleOwnerConfirmationCommand = async (
     }
 
     const turno = turnoRows[0];
-    if (turno.estado === 'confirmado') {
+    if (turno.estado === "confirmado") {
       await sendTextMessage(
         ownerPhone,
         `⚠️ El turno #${turnoId} ya se encontraba confirmado.`,
@@ -1780,8 +1800,11 @@ const handleOwnerConfirmationCommand = async (
       );
       return;
     }
-    
-    if (turno.estado !== 'pendiente_confirmacion' && turno.estado !== 'pendiente') {
+
+    if (
+      turno.estado !== "pendiente_confirmacion" &&
+      turno.estado !== "pendiente"
+    ) {
       await sendTextMessage(
         ownerPhone,
         `⚠️ No se puede confirmar el turno #${turnoId} porque su estado actual es '${turno.estado}'.`,
@@ -1791,7 +1814,10 @@ const handleOwnerConfirmationCommand = async (
     }
 
     // Actualizamos estado
-    await pool.execute('UPDATE TURNO SET estado = ? WHERE id_turno = ?', ['confirmado', turnoId]);
+    await pool.execute("UPDATE TURNO SET estado = ? WHERE id_turno = ?", [
+      "confirmado",
+      turnoId,
+    ]);
 
     // Notificamos al dueño
     await sendTextMessage(
@@ -1802,10 +1828,16 @@ const handleOwnerConfirmationCommand = async (
 
     // Notificamos al cliente
     if (turno.whatsapp_id) {
-      const fechaOptions = { weekday: 'long', day: 'numeric', month: 'long' };
-      const fechaStr = new Date(turno.fecha_hora).toLocaleDateString('es-AR', fechaOptions);
-      const horaStr = new Date(turno.fecha_hora).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
-      const clientMessage = `Hola ${turno.nombre_wa || ''}! 👋\n\nTe confirmamos que tu turno para *${turno.servicio_nombre}* el día *${fechaStr}* a las *${horaStr}* ha sido confirmado por ${company.nombre_comercial}.\n\n¡Te esperamos!`;
+      const fechaOptions = { weekday: "long", day: "numeric", month: "long" };
+      const fechaStr = new Date(turno.fecha_hora).toLocaleDateString(
+        "es-AR",
+        fechaOptions,
+      );
+      const horaStr = new Date(turno.fecha_hora).toLocaleTimeString("es-AR", {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+      const clientMessage = `Hola ${turno.nombre_wa || ""}! 👋\n\nTe confirmamos que tu turno para *${turno.servicio_nombre}* el día *${fechaStr}* a las *${horaStr}* ha sido confirmado por ${company.nombre_comercial}.\n\n¡Te esperamos!`;
 
       await sendTextMessageWithFallback({
         phoneNumber: turno.whatsapp_id,
@@ -1912,7 +1944,10 @@ const processIncomingMessage = async ({ instanceName, webhookData }) => {
 
     // ── Intercept appointment confirmation polls on support instance ────
     if (!normalized.fromMe && !normalized.isGroup) {
-      const handled = await handleAppointmentPollConfirmation(instanceName, normalized);
+      const handled = await handleAppointmentPollConfirmation(
+        instanceName,
+        normalized,
+      );
       if (handled) {
         console.log(
           `✅ Poll confirmación procesada | from=${maskPhoneForLog(normalized.phoneNumber)}`,
@@ -2002,11 +2037,17 @@ const processIncomingMessage = async ({ instanceName, webhookData }) => {
     ) {
       const text = String(normalized.text || "").trim();
       const match = text.match(/^confirmar(?:\s+turno)?\s+#?(\d+)$/i);
-      
+
       if (match) {
         const turnoId = parseInt(match[1], 10);
-        verboseLog(`📞 Comando de confirmación WA | owner=${normalized.phoneNumber} | turno=${turnoId}`);
-        await handleOwnerConfirmationCommand(instanceName, normalized.phoneNumber, turnoId);
+        verboseLog(
+          `📞 Comando de confirmación WA | owner=${normalized.phoneNumber} | turno=${turnoId}`,
+        );
+        await handleOwnerConfirmationCommand(
+          instanceName,
+          normalized.phoneNumber,
+          turnoId,
+        );
         continue;
       }
 

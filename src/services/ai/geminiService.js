@@ -1416,7 +1416,9 @@ const createTools = ({
             .number()
             .optional()
             .default(200)
-            .describe("Maximo de resultados (1-200). Usar siempre 200 para no truncar dias."),
+            .describe(
+              "Maximo de resultados (1-200). Usar siempre 200 para no truncar dias.",
+            ),
         }),
       },
     ),
@@ -1931,7 +1933,9 @@ const runWhatsappAssistant = async ({
           bucket.push(value);
         }
         if (Array.isArray(value)) {
-          value.forEach((entry) => collectValuesByKeyRegex(entry, keyRegex, bucket));
+          value.forEach((entry) =>
+            collectValuesByKeyRegex(entry, keyRegex, bucket),
+          );
         } else if (value && typeof value === "object") {
           collectValuesByKeyRegex(value, keyRegex, bucket);
         }
@@ -1986,7 +1990,11 @@ const runWhatsappAssistant = async ({
       .map((entry) => (typeof entry === "number" ? entry : Number(entry)))
       .filter((value) => Number.isInteger(value));
 
-    if (/poll/i.test(String(incomingMessage?.rawType || incomingMessage?.messageType || ""))) {
+    if (
+      /poll/i.test(
+        String(incomingMessage?.rawType || incomingMessage?.messageType || ""),
+      )
+    ) {
       console.log("🧪 Support menu poll debug", {
         from: customerPhone,
         rawType: incomingMessage?.rawType || incomingMessage?.messageType,
@@ -2242,7 +2250,9 @@ const runSupportAssistant = async ({ incomingMessage }) => {
           bucket.push(value);
         }
         if (Array.isArray(value)) {
-          value.forEach((entry) => collectValuesByKeyRegex(entry, keyRegex, bucket));
+          value.forEach((entry) =>
+            collectValuesByKeyRegex(entry, keyRegex, bucket),
+          );
         } else if (value && typeof value === "object") {
           collectValuesByKeyRegex(value, keyRegex, bucket);
         }
@@ -2367,7 +2377,8 @@ ${supportProfessionalsRef}
 ${buildTemporalReferenceText(realtimeContext)}`;
 
   if (supportState.companyId && supportState.companyName) {
-    const pollIntentKeywords = /\b(menu|opciones|ayuda|hola|buen|buenas|inicio|start)\b/i;
+    const pollIntentKeywords =
+      /\b(menu|opciones|ayuda|hola|buen|buenas|inicio|start)\b/i;
     const isMenuRequest =
       pollIntentKeywords.test(messageText) ||
       messageText === "Quiero ver turnos de un dia." ||

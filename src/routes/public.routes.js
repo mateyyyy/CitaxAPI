@@ -2,14 +2,19 @@ const express = require("express");
 const router = express.Router();
 const pool = require("../config/db");
 const { listAvailableSlots } = require("../services/ai/companyContextService");
-const { sendTextMessage, sendAppointmentConfirmationPoll } = require("../services/evolution.service");
+const {
+  sendTextMessage,
+  sendAppointmentConfirmationPoll,
+} = require("../services/evolution.service");
 const { hasClienteEmailColumn } = require("../services/clientSchema.service");
 const { hasTurnoOrigenColumn } = require("../services/turnoSchema.service");
 const { resolveCompanyLandingTemplate } = require("../utils/companyLanding");
 
 const SUPPORT_INSTANCE_NAME = String(
   process.env.SUPPORT_WHATSAPP_INSTANCE || "citax-support-whatsapp",
-).trim().toLowerCase();
+)
+  .trim()
+  .toLowerCase();
 
 const normalizeSlug = (value) =>
   String(value || "")
@@ -22,7 +27,10 @@ const normalizePhone = (value) =>
     .replace(/[^\d]/g, "")
     .trim();
 
-const normalizeEmail = (value) => String(value || "").trim().toLowerCase();
+const normalizeEmail = (value) =>
+  String(value || "")
+    .trim()
+    .toLowerCase();
 const formatTime = (value) => String(value || "").slice(0, 5);
 const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_REGEX = /^\d{2}:\d{2}$/;
@@ -31,7 +39,10 @@ const isValidIsoDate = (value) => {
   const text = String(value || "").trim();
   if (!ISO_DATE_REGEX.test(text)) return false;
   const parsed = new Date(`${text}T12:00:00Z`);
-  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === text;
+  return (
+    !Number.isNaN(parsed.getTime()) &&
+    parsed.toISOString().slice(0, 10) === text
+  );
 };
 
 const isValidTime = (value) => {
@@ -56,7 +67,7 @@ const findCompanyBySlug = async (slug) => {
      LEFT JOIN CONFIG_WHATSAPP cw ON cw.id_empresa = e.id_empresa
      WHERE e.slug = ?
      LIMIT 1`,
-    [slug]
+    [slug],
   );
 
   return rows[0] || null;
@@ -83,7 +94,7 @@ const listCompanyServices = async (companyId) => {
      FROM SERVICIO
      WHERE id_empresa = ?
      ORDER BY nombre ASC`,
-    [companyId]
+    [companyId],
   );
 
   return rows.map((row) => ({
@@ -107,7 +118,7 @@ const listCompanyProfessionals = async (companyId) => {
      WHERE p.id_empresa = ?
        AND p.activo = 1
      ORDER BY u.nombre ASC, u.apellido ASC, ps.id_servicio ASC`,
-    [companyId]
+    [companyId],
   );
 
   const map = new Map();
@@ -137,7 +148,7 @@ const professionalCanDoService = async ({ professionalId, serviceId }) => {
     `SELECT id_servicio
      FROM PRESTADOR_SERVICIO
      WHERE id_prestador = ?`,
-    [professionalId]
+    [professionalId],
   );
 
   if (!rows.length) {
@@ -197,7 +208,7 @@ const upsertClient = async ({
      WHERE id_empresa = ?
        AND whatsapp_id = ?
      LIMIT 1`,
-    [companyId, clientPhone]
+    [companyId, clientPhone],
   );
 
   const hasEmail = await hasClienteEmailColumn(connection);
@@ -210,14 +221,14 @@ const upsertClient = async ({
         `UPDATE CLIENTE
          SET nombre_wa = ?, email = ?
          WHERE id_cliente = ?`,
-        [clientName, clientEmail || null, clientId]
+        [clientName, clientEmail || null, clientId],
       );
     } else {
       await connection.execute(
         `UPDATE CLIENTE
          SET nombre_wa = ?
          WHERE id_cliente = ?`,
-        [clientName, clientId]
+        [clientName, clientId],
       );
     }
 
@@ -228,7 +239,7 @@ const upsertClient = async ({
     const [result] = await connection.execute(
       `INSERT INTO CLIENTE (id_empresa, whatsapp_id, nombre_wa, email)
        VALUES (?, ?, ?, ?)`,
-      [companyId, clientPhone, clientName, clientEmail || null]
+      [companyId, clientPhone, clientName, clientEmail || null],
     );
 
     return result.insertId;
@@ -237,7 +248,7 @@ const upsertClient = async ({
   const [result] = await connection.execute(
     `INSERT INTO CLIENTE (id_empresa, whatsapp_id, nombre_wa)
      VALUES (?, ?, ?)`,
-    [companyId, clientPhone, clientName]
+    [companyId, clientPhone, clientName],
   );
 
   return result.insertId;
@@ -339,7 +350,7 @@ router.get("/landing/:slug/availability", async (req, res) => {
         .filter(
           (slot) =>
             Number(slot.professionalId) === professionalId &&
-            slot.date === date
+            slot.date === date,
         )
         .map((slot) => slot.time),
     });
@@ -410,7 +421,7 @@ router.post("/landing/:slug/appointments", async (req, res) => {
        WHERE id_empresa = ?
          AND id_servicio = ?
        LIMIT 1`,
-      [company.id_empresa, serviceId]
+      [company.id_empresa, serviceId],
     );
 
     if (!serviceRows.length) {
@@ -425,7 +436,7 @@ router.post("/landing/:slug/appointments", async (req, res) => {
          AND p.id_prestador = ?
          AND p.activo = 1
        LIMIT 1`,
-      [company.id_empresa, professionalId]
+      [company.id_empresa, professionalId],
     );
 
     if (!professionalRows.length) {
@@ -457,7 +468,7 @@ router.post("/landing/:slug/appointments", async (req, res) => {
       (slot) =>
         Number(slot.professionalId) === professionalId &&
         slot.date === date &&
-        slot.time === time
+        slot.time === time,
     );
 
     if (!slotStillAvailable) {
@@ -507,7 +518,9 @@ router.post("/landing/:slug/appointments", async (req, res) => {
     let notificationError = "";
 
     if (company.whatsapp_number) {
-      console.log(`🔔 [NUEVO] Enviando poll confirmacion WA | instance=${SUPPORT_INSTANCE_NAME} | to=${company.whatsapp_number} | turnoId=${turnoResult.insertId}`);
+      console.log(
+        `🔔 [NUEVO] Enviando poll confirmacion WA | instance=${SUPPORT_INSTANCE_NAME} | to=${company.whatsapp_number} | turnoId=${turnoResult.insertId}`,
+      );
       try {
         await sendAppointmentConfirmationPoll({
           phoneNumber: company.whatsapp_number,
@@ -520,7 +533,8 @@ router.post("/landing/:slug/appointments", async (req, res) => {
             clientPhone,
             clientEmail,
             serviceName: serviceRows[0].nombre,
-            professionalName: `${professionalRows[0].nombre || ""} ${professionalRows[0].apellido || ""}`.trim(),
+            professionalName:
+              `${professionalRows[0].nombre || ""} ${professionalRows[0].apellido || ""}`.trim(),
             date,
             time,
             turnoId: turnoResult.insertId,
@@ -531,7 +545,10 @@ router.post("/landing/:slug/appointments", async (req, res) => {
         notificationError = error.response?.data?.message || error.message;
         console.error("❌ Error notificando solicitud publica por WhatsApp:");
         console.error("- Message:", notificationError);
-        console.error("- Response Data:", JSON.stringify(error.response?.data || {}, null, 2));
+        console.error(
+          "- Response Data:",
+          JSON.stringify(error.response?.data || {}, null, 2),
+        );
         console.error("- Request Config URL:", error.config?.url);
         console.error("- Request Config Data:", error.config?.data);
       }
