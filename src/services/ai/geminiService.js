@@ -841,6 +841,12 @@ const looksLikeAppointmentConfirmation = (value) => {
 const APPOINTMENT_CONFIRMATION_CLOSING =
   "Cualquier consulta, no dudes en llamarme";
 const NON_REPLY_MARKERS = new Set(["no response", "sin respuesta", "no_reply"]);
+const NON_REPLY_PATTERNS = [
+  /empty message/i,
+  /pendiente de respuesta/i,
+  /message not related to business services/i,
+  /rule\s*\d+/i,
+];
 
 const ensureAppointmentConfirmationClosing = (value) => {
   const reply = String(value || "").trim();
@@ -863,8 +869,31 @@ const ensureAppointmentConfirmationClosing = (value) => {
 const sanitizeNonReplyOutput = (value) => {
   const reply = String(value || "").trim();
   if (!reply) return "";
+  const normalized = normalizeAssistantText(reply);
+  if (NON_REPLY_MARKERS.has(normalized)) return "";
+  if (NON_REPLY_PATTERNS.some((pattern) => pattern.test(reply))) return "";
+  return reply;
+};
 
-  return NON_REPLY_MARKERS.has(normalizeAssistantText(reply)) ? "" : reply;
+const hasPollEnvelope = (raw) =>
+  Boolean(
+    raw?.pollUpdateMessage ||
+    raw?.pollResponseMessage ||
+    raw?.message?.pollUpdateMessage ||
+    raw?.message?.pollResponseMessage ||
+    raw?.data?.pollUpdateMessage ||
+    raw?.data?.pollResponseMessage,
+  );
+
+const isPollPlaceholderText = (value) => {
+  const normalized = normalizeAssistantText(value);
+  if (!normalized) return true;
+  return (
+    normalized.includes("empty message") ||
+    normalized.includes("pendiente de respuesta") ||
+    normalized.includes("message not related to business services") ||
+    /rule\s*\d+/.test(normalized)
+  );
 };
 
 const FINAL_REPLY_RECOVERY_PROMPT =
@@ -2004,6 +2033,13 @@ const runWhatsappAssistant = async ({
   if (supportMenuSelection) {
     messageText = supportMenuSelection;
   }
+  if (
+    hasPollEnvelope(incomingMessage?.raw) &&
+    !supportMenuSelection &&
+    isPollPlaceholderText(messageText)
+  ) {
+    return { enabled: false, reason: "Poll sin seleccion." };
+  }
 
   if (!messageText) {
     return {
@@ -2299,6 +2335,13 @@ const runSupportAssistant = async ({ incomingMessage }) => {
   }
   if (!customerPhone || !messageText) {
     return { enabled: false, reason: "Mensaje sin contenido." };
+  }
+  if (
+    hasPollEnvelope(incomingMessage?.raw) &&
+    !supportMenuSelection &&
+    isPollPlaceholderText(messageText)
+  ) {
+    return { enabled: false, reason: "Poll sin seleccion." };
   }
 
   const persistedSession = await getSupportSession(customerPhone);
