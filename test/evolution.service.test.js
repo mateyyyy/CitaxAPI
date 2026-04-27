@@ -2,11 +2,14 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const {
+  buildInitialSurveyFallbackText,
+  buildInitialSurveyPollPayloadCandidates,
   extractIncomingMessages,
   hasProcessableText,
   mergeBufferedIncomingMessages,
   normalizeIncomingMessage,
   normalizeQrPayload,
+  resolveSurveyActionFromSnapshot,
 } = require("../src/services/evolution.service");
 
 test("normalizeIncomingMessage handles plain text messages", () => {
@@ -172,4 +175,65 @@ test("mergeBufferedIncomingMessages joins consecutive texts into one prompt", ()
   );
   assert.equal(merged.mergedCount, 3);
   assert.deepEqual(merged.mergedMessageIds, ["msg-1", "msg-2", "msg-3"]);
+});
+
+test("buildInitialSurveyPollPayloadCandidates preserves configured order", () => {
+  const payloads = buildInitialSurveyPollPayloadCandidates({
+    number: "5492657000000",
+    survey: {
+      question: "Como te puedo ayudar?",
+      options: [
+        { action: "appointment_info", label: "Informacion sobre mi turno" },
+        { action: "book", label: "Quiero sacar un turno" },
+      ],
+    },
+  });
+
+  assert.equal(payloads[0].name, "Como te puedo ayudar?");
+  assert.deepEqual(payloads[0].values, [
+    "Informacion sobre mi turno",
+    "Quiero sacar un turno",
+  ]);
+});
+
+test("buildInitialSurveyFallbackText uses active labels in order", () => {
+  const text = buildInitialSurveyFallbackText({
+    question: "Como te puedo ayudar?",
+    options: [
+      { action: "cancel", label: "Necesito cancelar un turno" },
+      { action: "none", label: "Ninguna de estas opciones" },
+    ],
+  });
+
+  assert.equal(
+    text,
+    "Como te puedo ayudar? Respondé: Necesito cancelar un turno / Ninguna de estas opciones",
+  );
+});
+
+test("resolveSurveyActionFromSnapshot maps configured labels to actions", () => {
+  const option = resolveSurveyActionFromSnapshot({
+    surveySnapshot: {
+      options: [
+        {
+          action: "appointment_info",
+          label: "Informacion sobre mi turno",
+        },
+      ],
+    },
+    text: "informacion sobre mi turno",
+  });
+
+  assert.equal(option?.action, "appointment_info");
+});
+
+test("resolveSurveyActionFromSnapshot returns null for unknown labels", () => {
+  const option = resolveSurveyActionFromSnapshot({
+    surveySnapshot: {
+      options: [{ action: "book", label: "Quiero sacar un turno" }],
+    },
+    text: "quiero hablar con soporte",
+  });
+
+  assert.equal(option, null);
 });

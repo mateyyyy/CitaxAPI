@@ -59,7 +59,7 @@ router.get("/", async (req, res) => {
 router.get("/company-profile", async (req, res) => {
   try {
     const [rows] = await pool.execute(
-      "SELECT nombre_comercial, slug, bot_config FROM EMPRESA WHERE id_empresa = ?",
+      "SELECT nombre_comercial, slug, direccion, bot_config FROM EMPRESA WHERE id_empresa = ?",
       [req.user.id_empresa],
     );
 
@@ -73,6 +73,7 @@ router.get("/company-profile", async (req, res) => {
     res.json({
       nombre_comercial: company.nombre_comercial || "",
       slug: company.slug || "",
+      direccion: company.direccion || "",
       public_url: buildPublicLandingUrl(company.slug),
       landing_template: landingTemplate,
       has_landing: Boolean(landingTemplate),
@@ -95,7 +96,7 @@ router.get("/account-profile", async (req, res) => {
     }
 
     const [companyRows] = await pool.execute(
-      "SELECT nombre_comercial FROM EMPRESA WHERE id_empresa = ? LIMIT 1",
+      "SELECT nombre_comercial, direccion FROM EMPRESA WHERE id_empresa = ? LIMIT 1",
       [req.user.id_empresa],
     );
 
@@ -108,6 +109,7 @@ router.get("/account-profile", async (req, res) => {
       apellido: user.apellido || "",
       rol: user.rol || "",
       nombre_comercial: company.nombre_comercial || "",
+      direccion: company.direccion || "",
     });
   } catch (err) {
     console.error(err);
@@ -122,6 +124,8 @@ router.put(
     try {
       const requestedSlug = String(req.body?.slug || "");
       const normalizedSlug = toSlug(requestedSlug);
+      const direccion = String(req.body?.direccion || "").trim();
+      const normalizedDireccion = direccion.slice(0, 500);
 
       if (!normalizedSlug) {
         return res.status(400).json({ error: "El subdominio es obligatorio" });
@@ -145,7 +149,7 @@ router.put(
       }
 
       const [companyRows] = await pool.execute(
-        "SELECT nombre_comercial, slug, bot_config FROM EMPRESA WHERE id_empresa = ? LIMIT 1",
+        "SELECT nombre_comercial, slug, direccion, bot_config FROM EMPRESA WHERE id_empresa = ? LIMIT 1",
         [req.user.id_empresa],
       );
 
@@ -162,18 +166,23 @@ router.put(
 
       if (shouldPersist) {
         await pool.execute(
-          "UPDATE EMPRESA SET slug = ?, bot_config = ? WHERE id_empresa = ?",
-          [normalizedSlug, JSON.stringify(botConfig), req.user.id_empresa],
+          "UPDATE EMPRESA SET slug = ?, direccion = ?, bot_config = ? WHERE id_empresa = ?",
+          [
+            normalizedSlug,
+            normalizedDireccion || null,
+            JSON.stringify(botConfig),
+            req.user.id_empresa,
+          ],
         );
       } else {
-        await pool.execute("UPDATE EMPRESA SET slug = ? WHERE id_empresa = ?", [
-          normalizedSlug,
-          req.user.id_empresa,
-        ]);
+        await pool.execute(
+          "UPDATE EMPRESA SET slug = ?, direccion = ? WHERE id_empresa = ?",
+          [normalizedSlug, normalizedDireccion || null, req.user.id_empresa],
+        );
       }
 
       const [rows] = await pool.execute(
-        "SELECT nombre_comercial, slug, bot_config FROM EMPRESA WHERE id_empresa = ?",
+        "SELECT nombre_comercial, slug, direccion, bot_config FROM EMPRESA WHERE id_empresa = ?",
         [req.user.id_empresa],
       );
 
@@ -185,6 +194,7 @@ router.put(
       res.json({
         nombre_comercial: company?.nombre_comercial || "",
         slug: company?.slug || normalizedSlug,
+        direccion: company?.direccion || "",
         public_url: buildPublicLandingUrl(company?.slug || normalizedSlug),
         landing_template: nextLanding,
         has_landing: Boolean(nextLanding),
@@ -206,6 +216,8 @@ router.put("/account-profile", async (req, res) => {
     const nombre = String(req.body?.nombre || "").trim();
     const apellido = String(req.body?.apellido || "").trim();
     const nombreComercial = String(req.body?.nombre_comercial || "").trim();
+    const direccion = String(req.body?.direccion || "").trim();
+    const normalizedDireccion = direccion.slice(0, 500);
 
     if (!email || !nombre || !apellido) {
       return res
@@ -272,13 +284,18 @@ router.put("/account-profile", async (req, res) => {
 
       if (shouldPersist) {
         await connection.execute(
-          "UPDATE EMPRESA SET nombre_comercial = ?, bot_config = ? WHERE id_empresa = ?",
-          [nombreComercial, JSON.stringify(botConfig), req.user.id_empresa],
+          "UPDATE EMPRESA SET nombre_comercial = ?, direccion = ?, bot_config = ? WHERE id_empresa = ?",
+          [
+            nombreComercial,
+            normalizedDireccion || null,
+            JSON.stringify(botConfig),
+            req.user.id_empresa,
+          ],
         );
       } else {
         await connection.execute(
-          "UPDATE EMPRESA SET nombre_comercial = ? WHERE id_empresa = ?",
-          [nombreComercial, req.user.id_empresa],
+          "UPDATE EMPRESA SET nombre_comercial = ?, direccion = ? WHERE id_empresa = ?",
+          [nombreComercial, normalizedDireccion || null, req.user.id_empresa],
         );
       }
     }
@@ -291,6 +308,7 @@ router.put("/account-profile", async (req, res) => {
       apellido,
       rol: req.user.rol,
       nombre_comercial: req.user.rol === "admin_empresa" ? nombreComercial : "",
+      direccion: req.user.rol === "admin_empresa" ? normalizedDireccion : "",
     });
   } catch (err) {
     try {
@@ -336,6 +354,17 @@ router.put("/bot", async (req, res) => {
   try {
     await connection.beginTransaction();
 
+    if (
+      Object.prototype.hasOwnProperty.call(req.body || {}, "encuesta_inicial") &&
+      req.user.rol !== "admin_empresa"
+    ) {
+      await connection.rollback();
+      return res.status(403).json({
+        error:
+          "Solo los administradores de empresa pueden modificar la encuesta inicial.",
+      });
+    }
+
     // Sanear el payload para asegurarnos de que no hay código extraño
     const currentConfig = await getCompanyBotConfig(
       req.user.id_empresa,
@@ -346,8 +375,18 @@ router.put("/bot", async (req, res) => {
       return res.status(404).json({ error: "Empresa no encontrada" });
     }
 
-    const config = sanitizeBotConfig(req.body || {}, currentConfig);
-    const validation = await validateBotConfig(config);
+    let config;
+    try {
+      config = sanitizeBotConfig(req.body || {}, currentConfig);
+    } catch (error) {
+      await connection.rollback();
+      return res.status(error.statusCode || 400).json({
+        error: error.message || "Configuracion del bot invalida.",
+      });
+    }
+
+    const { encuesta_inicial, ...configForValidation } = config;
+    const validation = await validateBotConfig(configForValidation);
 
     if (!validation.valid) {
       await connection.rollback();

@@ -244,6 +244,7 @@ const getCompanyContextByInstanceName = async (
     companyId: empresa.id_empresa,
     companyName: empresa.nombre_comercial,
     companySlug: empresa.slug,
+    companyAddress: String(empresa.direccion || "").trim(),
     timezone: DEFAULT_TIMEZONE,
     currentDate: getCurrentDateInTimeZone(),
     currentDayName: getCurrentDayNameInSpanish(),

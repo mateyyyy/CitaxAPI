@@ -1352,6 +1352,7 @@ const createTools = ({
       async () => {
         return JSON.stringify({
           companyName: companyContext.companyName,
+          companyAddress: companyContext.companyAddress || "",
           timezone: companyContext.timezone,
           professionals: companyContext.professionals.map((p) => ({
             id: p.id,

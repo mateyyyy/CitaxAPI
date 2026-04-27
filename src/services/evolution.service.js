@@ -18,6 +18,9 @@ const {
   getIgnoredInternalPhonesForInstance,
   normalizeWhatsappPhone,
 } = require("./internalWhatsapp.service");
+const {
+  getEffectiveInitialSurvey,
+} = require("./singleProviderMode.service");
 
 const { baseUrl: EVOLUTION_API_URL, apiKey: EVOLUTION_API_KEY } =
   getEvolutionApiConfig();
@@ -509,35 +512,82 @@ const sendTextMessageWithFallback = async ({
   return { sent: false, candidate: "" };
 };
 
-const sendPollMessage = async (phoneNumber, instanceName) => {
+const getInitialSurveyForInstance = async (instanceName) => {
   const normalizedInstanceName = normalizeInstanceName(instanceName);
-  const number = String(phoneNumber).replace(/[^\d]/g, "");
 
-  const payloadCandidates = [
+  try {
+    const [rows] = await pool.execute(
+      `SELECT e.bot_config
+       FROM CONFIG_WHATSAPP cw
+       JOIN EMPRESA e ON e.id_empresa = cw.id_empresa
+       WHERE cw.instance_name = ?
+       LIMIT 1`,
+      [normalizedInstanceName],
+    );
+
+    if (!rows.length) {
+      return getEffectiveInitialSurvey({});
+    }
+
+    return getEffectiveInitialSurvey(rows[0].bot_config);
+  } catch (error) {
+    console.error(
+      "Error resolviendo encuesta inicial para la instancia:",
+      normalizedInstanceName,
+      error.message,
+    );
+    return getEffectiveInitialSurvey({});
+  }
+};
+
+const buildInitialSurveyPollPayloadCandidates = ({ number, survey }) => {
+  const question = String(survey?.question || "").trim();
+  const optionLabels = Array.isArray(survey?.options)
+    ? survey.options.map((option) => option.label).filter(Boolean)
+    : [];
+
+  return [
     {
       number,
-      name: "Hola, ¿Cómo te puedo ayudar con tus turnos?",
+      name: question,
       selectableCount: 1,
-      values: [
-        "Quiero sacar un turno",
-        "Necesito cancelar un turno",
-        "Quiero cambiar el horario",
-        "Ninguna de estas opciones",
-      ],
+      values: optionLabels,
     },
     {
       number,
-      title: "Hola, ¿Cómo te puedo ayudar con tus turnos?",
-      options: [
-        "Quiero sacar un turno",
-        "Necesito cancelar un turno",
-        "Quiero cambiar el horario",
-        "Ninguna de estas opciones",
-      ],
+      title: question,
+      options: optionLabels,
       selectableCount: 1,
     },
   ];
+};
 
+const buildInitialSurveyFallbackText = (survey) => {
+  const question = String(survey?.question || "").trim();
+  const optionLabels = Array.isArray(survey?.options)
+    ? survey.options.map((option) => option.label).filter(Boolean)
+    : [];
+
+  return `${question} Respondé: ${optionLabels.join(" / ")}`.trim();
+};
+
+const sendPollMessage = async (phoneNumber, instanceName) => {
+  const normalizedInstanceName = normalizeInstanceName(instanceName);
+  const number = String(phoneNumber).replace(/[^\d]/g, "");
+  const survey = await getInitialSurveyForInstance(normalizedInstanceName);
+  const payloadCandidates = buildInitialSurveyPollPayloadCandidates({
+    number,
+    survey,
+  });
+  const surveySnapshot = {
+    question: survey.question,
+    options: survey.options.map((option) => ({
+      action: option.action,
+      label: option.label,
+    })),
+    personalizada: survey.personalizada === true,
+    allowLegacyYesNo: survey.personalizada !== true,
+  };
   let lastError = null;
 
   for (const payload of payloadCandidates) {
@@ -546,10 +596,15 @@ const sendPollMessage = async (phoneNumber, instanceName) => {
         `/message/sendPoll/${normalizedInstanceName}`,
         payload,
       );
-      return { sent: true, provider: "poll", data: response.data };
+      return {
+        sent: true,
+        provider: "poll",
+        data: response.data,
+        surveySnapshot,
+      };
     } catch (error) {
       lastError = error;
-      console.warn("⚠️ Falló envío poll con payload, intento siguiente:", {
+      console.warn("Fallo envio poll con payload, intento siguiente:", {
         instanceName: normalizedInstanceName,
         number,
         status: error.response?.status || null,
@@ -558,13 +613,19 @@ const sendPollMessage = async (phoneNumber, instanceName) => {
     }
   }
 
-  const fallbackText =
-    "Hola, ¿Cómo te puedo ayudar? Respondé: Sacar un turno / Cancelar un turno / Cambiar un turno / Ninguna de estas opciones";
-  await sendTextMessage(number, fallbackText, normalizedInstanceName);
+  await sendTextMessage(
+    number,
+    buildInitialSurveyFallbackText(survey),
+    normalizedInstanceName,
+  );
   return {
     sent: true,
     provider: "text-fallback",
     fallbackReason: lastError?.message || null,
+    surveySnapshot: {
+      ...surveySnapshot,
+      provider: "text-fallback",
+    },
   };
 };
 
@@ -1477,14 +1538,36 @@ const resolveSurveyOutcome = (normalized) => {
   return { decision: null, selectedText: "" };
 };
 
+const resolveSurveyActionFromSnapshot = ({
+  surveySnapshot,
+  text = "",
+}) => {
+  const normalizedText = normalizeSurveyText(text);
+  if (!normalizedText || !Array.isArray(surveySnapshot?.options)) {
+    return null;
+  }
+
+  return surveySnapshot.options
+    .map((option) => ({
+      action: option.action,
+      label: String(option.label || "").trim(),
+      normalizedLabel: normalizeSurveyText(option.label),
+    }))
+    .filter((option) => option.normalizedLabel)
+    .sort(
+      (left, right) => right.normalizedLabel.length - left.normalizedLabel.length,
+    )
+    .find((option) => option.normalizedLabel === normalizedText) || null;
+};
+
 const mapSurveySelectionToIntentText = ({
+  selectedSurveyAction = "",
   selectedSurveyText,
   extraText = "",
 }) => {
-  const selected = normalizeSurveyText(selectedSurveyText);
   const extra = String(extraText || "").trim();
 
-  if (selected.includes("cambiar")) {
+  if (selectedSurveyAction === "reschedule") {
     return [
       "Quiero cambiar un turno.",
       "Mostrame mis turnos pendientes de este numero para elegir cual cambiar.",
@@ -1495,7 +1578,7 @@ const mapSurveySelectionToIntentText = ({
       .trim();
   }
 
-  if (selected.includes("cancelar")) {
+  if (selectedSurveyAction === "cancel") {
     return [
       "Quiero cancelar un turno.",
       "Mostrame mis turnos pendientes de este numero para elegir cual cancelar.",
@@ -1506,8 +1589,23 @@ const mapSurveySelectionToIntentText = ({
       .trim();
   }
 
-  if (selected.includes("sacar")) {
+  if (selectedSurveyAction === "book") {
     return ["Quiero sacar un turno.", extra].filter(Boolean).join(" ").trim();
+  }
+
+  if (selectedSurveyAction === "appointment_info") {
+    return [
+      "Quiero informacion sobre mis turnos pendientes de este numero.",
+      "Mostramelos para revisarlos.",
+      extra,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+  }
+
+  if (selectedSurveyAction === "none") {
+    return "";
   }
 
   return [selectedSurveyText, extra].filter(Boolean).join(" ").trim();
@@ -2196,6 +2294,15 @@ const processIncomingMessage = async ({ instanceName, webhookData }) => {
           normalized.phoneNumber,
           instanceName,
         );
+        whatsappConversationGate.set(gateKey, {
+          status: "pending",
+          askedAt: now,
+          updatedAt: now,
+          surveySnapshot: pollResult?.surveySnapshot || null,
+          selectedSurveyAction: "",
+          selectedSurveyText: "",
+          preconfirmedYesAt: null,
+        });
         console.log(
           `📊 Encuesta | to=${maskPhoneForLog(normalized.phoneNumber)} | provider=${pollResult?.provider || "unknown"}`,
         );
@@ -2225,9 +2332,10 @@ const processIncomingMessage = async ({ instanceName, webhookData }) => {
       const isPollPayload = /poll/i.test(
         String(normalized.rawType || normalized.messageType || ""),
       );
-      const selectedSurveyText = String(
+      let selectedSurveyText = String(
         surveyOutcome.selectedText || "",
       ).trim();
+      const surveySnapshot = activeGateState?.surveySnapshot || null;
 
       const currentText = hasProcessableText(normalized.text)
         ? String(normalized.text || "").trim()
@@ -2235,15 +2343,52 @@ const processIncomingMessage = async ({ instanceName, webhookData }) => {
       const bufferedText = String(
         activeGateState?.pendingBufferedText || "",
       ).trim();
+      let selectedSurveyOption =
+        resolveSurveyActionFromSnapshot({
+          surveySnapshot,
+          text: selectedSurveyText,
+        }) ||
+        (!isPollPayload
+          ? resolveSurveyActionFromSnapshot({
+              surveySnapshot,
+              text: currentText,
+            })
+          : null);
+
+      if (!selectedSurveyText && selectedSurveyOption?.label) {
+        selectedSurveyText = selectedSurveyOption.label;
+      }
+
+      if (
+        surveySnapshot?.personalizada === true &&
+        !isPollPayload &&
+        !activeGateState?.preconfirmedYesAt &&
+        !selectedSurveyOption
+      ) {
+        decision = null;
+      }
 
       // Si el usuario ya había pre-confirmado "sí" con el poll y ahora manda texto
       // con el detalle del turno, tomarlo como confirmación definitiva.
       if (activeGateState?.preconfirmedYesAt && !isPollPayload && currentText) {
         decision = "yes";
-        normalized.text = `Si ${[bufferedText, currentText]
-          .filter(Boolean)
-          .join(" ")
-          .trim()}`;
+        selectedSurveyText =
+          activeGateState.selectedSurveyText || selectedSurveyText;
+        if (activeGateState.selectedSurveyAction) {
+          selectedSurveyOption = {
+            action: activeGateState.selectedSurveyAction,
+            label: selectedSurveyText,
+          };
+        }
+        normalized.text =
+          mapSurveySelectionToIntentText({
+            selectedSurveyAction: selectedSurveyOption?.action || "",
+            selectedSurveyText,
+            extraText: [bufferedText, currentText].filter(Boolean).join(" "),
+          }) ||
+          `Si ${[bufferedText, currentText].filter(Boolean).join(" ").trim()}`;
+      } else if (!decision && selectedSurveyOption) {
+        decision = selectedSurveyOption.action === "none" ? "no" : "yes";
       }
 
       // Mientras se espera respuesta al poll: SIEMPRE bufferizar texto, nunca clasificar.
@@ -2286,6 +2431,7 @@ const processIncomingMessage = async ({ instanceName, webhookData }) => {
         if (combinedWithBuffer) {
           normalized.text =
             mapSurveySelectionToIntentText({
+              selectedSurveyAction: selectedSurveyOption?.action || "",
               selectedSurveyText,
               extraText: [bufferedText, currentText].filter(Boolean).join(" "),
             }) || `Si ${combinedWithBuffer}`;
@@ -2295,6 +2441,8 @@ const processIncomingMessage = async ({ instanceName, webhookData }) => {
             ...activeGateState,
             status: "pending",
             preconfirmedYesAt: now,
+            selectedSurveyAction: selectedSurveyOption?.action || "",
+            selectedSurveyText,
             updatedAt: now,
           });
           verboseLog(
@@ -2317,6 +2465,22 @@ const processIncomingMessage = async ({ instanceName, webhookData }) => {
       }
 
       if (decision === "yes") {
+        if (
+          !isPollPayload &&
+          !activeGateState?.preconfirmedYesAt &&
+          currentText &&
+          selectedSurveyOption
+        ) {
+          normalized.text =
+            mapSurveySelectionToIntentText({
+              selectedSurveyAction: selectedSurveyOption.action,
+              selectedSurveyText:
+                selectedSurveyText || selectedSurveyOption.label || currentText,
+              extraText: bufferedText,
+            }) || normalized.text;
+          normalized.rawType = "pollResponseSynthetic";
+        }
+
         whatsappConversationGate.set(gateKey, {
           status: "opted-in",
           updatedAt: now,
@@ -2325,6 +2489,7 @@ const processIncomingMessage = async ({ instanceName, webhookData }) => {
         if (!hasProcessableText(normalized.text)) {
           normalized.text =
             mapSurveySelectionToIntentText({
+              selectedSurveyAction: selectedSurveyOption?.action || "",
               selectedSurveyText,
             }) ||
             selectedSurveyText ||
@@ -2359,6 +2524,16 @@ const processIncomingMessage = async ({ instanceName, webhookData }) => {
           normalized.phoneNumber,
           instanceName,
         );
+        whatsappConversationGate.set(gateKey, {
+          status: "pending",
+          askedAt: now,
+          updatedAt: now,
+          pendingBufferedText: firstBufferedText,
+          surveySnapshot: pollResult?.surveySnapshot || null,
+          selectedSurveyAction: "",
+          selectedSurveyText: "",
+          preconfirmedYesAt: null,
+        });
         console.log(
           `📊 Encuesta | to=${maskPhoneForLog(normalized.phoneNumber)} | provider=${pollResult?.provider || "unknown"}`,
         );
@@ -2399,6 +2574,8 @@ const processIncomingMessage = async ({ instanceName, webhookData }) => {
 };
 
 module.exports = {
+  buildInitialSurveyFallbackText,
+  buildInitialSurveyPollPayloadCandidates,
   buildInstanceName,
   createInstanceWithQr,
   clearLatestQr,
@@ -2417,7 +2594,9 @@ module.exports = {
   processIncomingMessage,
   registerWebhook,
   resolveSurveyDecision,
+  resolveSurveyActionFromSnapshot,
   sendAppointmentConfirmationPoll,
+  sendPollMessage,
   sendTextMessage,
   storeLatestQr,
 };

@@ -21,6 +21,7 @@ const normalizeOwnPhrases = (value) => {
 const buildAssistantPrompt = (companyContext, customerName = "") => {
   const {
     companyName = "la empresa",
+    companyAddress = "",
     professionals = [],
     services = [],
     customerPendingAppointments = [],
@@ -133,6 +134,7 @@ REGLAS OPERATIVAS:
 8.1. Incluso si el cliente pregunta por un horario puntual o parece decidido, SIEMPRE formula una confirmacion final clara del tipo "Si queres, te reservo..." y espera un si explicito antes de ejecutar create_appointment.
 9. No menciones IDs internos ni detalles tecnicos.
 10. Si el cliente pregunta algo general del negocio, responde usando el contexto disponible. Si no sabes, indica que lo vas a derivar.
+10.1. Si el cliente pregunta donde queda el negocio, la direccion o la ubicacion, responde con la direccion configurada si existe. Si no hay direccion cargada, indica que no la tienes configurada y que lo vas a derivar.
 11. La fecha actual de referencia es ${currentDate}. Zona horaria: ${timezone}. No supongas otro ano ni otro dia de la semana distinto al real.
 12. Si el cliente dice "el que vos quieras", "el mas proximo", "cualquiera" o algo equivalente, debes buscar disponibilidad y ofrecer la opcion mas cercana.
 13. No afirmes que no hay turnos ni que si trabaja un dia sin usar la herramienta find_available_slots.
@@ -198,6 +200,7 @@ FORMATO DE RESPUESTA:
 
 CONTEXTO DEL NEGOCIO:
 Negocio: ${companyName}
+Direccion: ${companyAddress || "No configurada"}
 Fecha actual: ${currentDate}
 Zona horaria: ${timezone}
 Modo prestador unico: ${singleProviderMode ? "si" : "no"}
