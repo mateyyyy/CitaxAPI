@@ -1,4 +1,5 @@
 const axios = require("axios");
+const logger = require("../../utils/logger");
 const {
   getEvolutionApiConfig,
   getEvolutionRequestHeaders,
@@ -51,9 +52,7 @@ const normalizeAudioBase64 = (value) => {
 
 const transcribeAudio = async (base64Data) => {
   if (!GROQ_API_KEY) {
-    console.log(
-      "No hay GROQ_API_KEY configurada para transcribir audios. Agregala en el archivo .env"
-    );
+    logger.warn("No GROQ_API_KEY configurada. Audio transcription deshabilitada.");
     return AUDIO_TRANSCRIPTION_NOT_CONFIGURED;
   }
 
@@ -101,7 +100,7 @@ const processAudioMessage = async (instanceName, messageId) => {
   }
 
   const transcript = await transcribeAudio(base64);
-  console.log(`Audio transcrito (${messageId}):`, transcript);
+  logger.info(`Audio transcrito | id=${messageId} | "${String(transcript || "").slice(0, 80)}"`);
   return transcript;
 };
 

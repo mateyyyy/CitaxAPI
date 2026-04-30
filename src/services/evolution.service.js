@@ -1,6 +1,7 @@
 const axios = require("axios");
 const fs = require("fs");
 const path = require("path");
+const logger = require("../utils/logger");
 const {
   processAudioMessage,
   AUDIO_DOWNLOAD_ERROR,
@@ -434,8 +435,8 @@ const disconnectInstance = async (instanceName) => {
 const sendTextMessage = async (phoneNumber, text, instanceName) => {
   const normalizedInstanceName = normalizeInstanceName(instanceName);
   const number = String(phoneNumber).replace(/[^\d]/g, "");
-  console.log(
-    `📤 sendTextMessage | instance=${normalizedInstanceName} | to=${number} | textLen=${text?.length || 0}`,
+  logger.debug(
+    `sendTextMessage | instance=${normalizedInstanceName} | to=${number} | textLen=${text?.length || 0}`,
   );
   try {
     const response = await evolutionClient.post(
@@ -451,7 +452,7 @@ const sendTextMessage = async (phoneNumber, text, instanceName) => {
     return response.data;
   } catch (error) {
     console.error(
-      `❌ sendTextMessage FAILED | instance=${normalizedInstanceName} | to=${number}`,
+      `sendTextMessage FAILED | instance=${normalizedInstanceName} | to=${number}`,
     );
     console.error("  status:", error.response?.status);
     console.error(
@@ -760,7 +761,7 @@ const sendAppointmentConfirmationPoll = async ({
   if (!pollSent) {
     // Fallback: indicar que responda con texto
     console.warn(
-      `⚠️ No se pudo enviar poll para turno #${turnoId}, se envió solo texto.`,
+      `No se pudo enviar poll para turno #${turnoId}, se envió solo texto.`,
     );
   }
 
@@ -842,8 +843,8 @@ const handleAppointmentPollConfirmation = async (instanceName, normalized) => {
   if (!pollResponse) return false;
 
   const ownerPhone = normalized.phoneNumber;
-  console.log(
-    `📊 Poll confirmación turno | from=${ownerPhone} | action=${pollResponse.action}`,
+  logger.info(
+    `Poll confirmación turno | from=${ownerPhone} | action=${pollResponse.action}`,
   );
 
   // Find the pending poll for this phone
@@ -857,7 +858,7 @@ const handleAppointmentPollConfirmation = async (instanceName, normalized) => {
   }
 
   if (!matchedEntry) {
-    console.warn(`⚠️ No se encontró poll pendiente para ${ownerPhone}`);
+    console.warn(`No se encontró poll pendiente para ${ownerPhone}`);
     return true; // Still consumed the message
   }
 
@@ -879,7 +880,7 @@ const handleAppointmentPollConfirmation = async (instanceName, normalized) => {
       ]);
       await sendTextMessage(
         ownerPhone,
-        `❌ Turno #${turnoId} rechazado. El turno fue cancelado.`,
+        `Turno #${turnoId} rechazado. El turno fue cancelado.`,
         normalizedInstanceName,
       );
       const [rows] = await pool.execute(
@@ -1141,7 +1142,7 @@ const appendConversationLog = (entry = {}) => {
 
 const verboseLog = (...args) => {
   if (WHATSAPP_VERBOSE_LOGS) {
-    console.log(...args);
+    logger.debug(args.join(" "));
   }
 };
 
@@ -1685,8 +1686,8 @@ const flushIncomingMessageBatch = async (batchKey) => {
     runWhatsappAssistant,
   } = require("./ai/geminiService");
 
-  console.log(
-    `🧩 Lote | from=${maskPhoneForLog(mergedMessage.phoneNumber)} | msgs=${mergedMessage.mergedCount} | "${compactText(mergedMessage.text)}"`,
+  logger.info(
+    `Lote | from=${maskPhoneForLog(mergedMessage.phoneNumber)} | msgs=${mergedMessage.mergedCount} | "${compactText(mergedMessage.text)}"`,
   );
 
   appendConversationLog({
@@ -1710,12 +1711,12 @@ const flushIncomingMessageBatch = async (batchKey) => {
       ? String(aiResponse.text).replace(/\r?\n/g, "\\n")
       : "";
 
-    console.log(
-      `🤖 IA | from=${maskPhoneForLog(mergedMessage.phoneNumber)} | enabled=${Boolean(aiResponse?.enabled)} | hasText=${Boolean(aiResponse?.text)}${aiResponse?.reason ? ` | reason=${aiResponse.reason}` : ""}${aiLogText ? ` | text="${aiLogText}"` : ""}`,
+    logger.info(
+      `IA | from=${maskPhoneForLog(mergedMessage.phoneNumber)} | enabled=${Boolean(aiResponse?.enabled)} | hasText=${Boolean(aiResponse?.text)}${aiResponse?.reason ? ` | reason=${aiResponse.reason}` : ""}${aiLogText ? ` | text="${aiLogText}"` : ""}`,
     );
 
     if (Array.isArray(aiResponse?.usedTools) && aiResponse.usedTools.length) {
-      console.log(`🛠️ TOOLS | ${aiResponse.usedTools.join(", ")}`);
+      logger.info(`TOOLS | ${aiResponse.usedTools.join(", ")}`);
     }
 
     appendConversationLog({
@@ -1736,8 +1737,8 @@ const flushIncomingMessageBatch = async (batchKey) => {
         mergedMessage.phoneNumber,
         instanceName,
       );
-      console.log(
-        `📊 Encuesta soporte | to=${maskPhoneForLog(mergedMessage.phoneNumber)} | provider=${pollResult?.provider || "unknown"}`,
+      logger.info(
+        `Encuesta soporte | to=${maskPhoneForLog(mergedMessage.phoneNumber)} | provider=${pollResult?.provider || "unknown"}`,
       );
       appendConversationLog({
         event: "outbound_sent",
@@ -1751,7 +1752,7 @@ const flushIncomingMessageBatch = async (batchKey) => {
         aiResponse.text,
         instanceName,
       );
-      console.log(`📤 OUT | to=${maskPhoneForLog(mergedMessage.phoneNumber)}`);
+      logger.info(`OUT | to=${maskPhoneForLog(mergedMessage.phoneNumber)}`);
       appendConversationLog({
         event: "outbound_sent",
         instanceName,
@@ -1759,7 +1760,7 @@ const flushIncomingMessageBatch = async (batchKey) => {
         text: aiResponse.text,
       });
     } else {
-      console.log(`🔇 OUT | reason=${aiResponse?.reason || "n/a"}`);
+      logger.info(`OUT | reason=${aiResponse?.reason || "n/a"}`);
       appendConversationLog({
         event: "outbound_skipped",
         instanceName,
@@ -1789,16 +1790,12 @@ const flushIncomingMessageBatch = async (batchKey) => {
         reason: "post_appointment_grace",
         transitionToNeedsSurveyAfterMute: true,
       });
-      console.log(
-        `🔄 Flujo post-turno | from=${maskPhoneForLog(mergedMessage.phoneNumber)} | grace=10min → needs_survey`,
+      logger.info(
+        `Flujo post-turno | from=${maskPhoneForLog(mergedMessage.phoneNumber)} | grace=10min → needs_survey`,
       );
     }
   } catch (error) {
-    console.error(
-      "❌ Error ejecutando asistente IA:",
-      error.message,
-      error.stack?.slice(0, 300),
-    );
+    logger.error({ err: error }, `Error ejecutando asistente IA: ${error.message}`);
   }
 };
 
@@ -1883,7 +1880,7 @@ const handleOwnerConfirmationCommand = async (
     if (!turnoRows.length) {
       await sendTextMessage(
         ownerPhone,
-        `❌ No se encontró el turno #${turnoId} para tu empresa.`,
+        `No se encontró el turno #${turnoId} para tu empresa.`,
         ownerInstanceName,
       );
       return;
@@ -1893,7 +1890,7 @@ const handleOwnerConfirmationCommand = async (
     if (turno.estado === "confirmado") {
       await sendTextMessage(
         ownerPhone,
-        `⚠️ El turno #${turnoId} ya se encontraba confirmado.`,
+        `El turno #${turnoId} ya se encontraba confirmado.`,
         ownerInstanceName,
       );
       return;
@@ -1905,7 +1902,7 @@ const handleOwnerConfirmationCommand = async (
     ) {
       await sendTextMessage(
         ownerPhone,
-        `⚠️ No se puede confirmar el turno #${turnoId} porque su estado actual es '${turno.estado}'.`,
+        `No se puede confirmar el turno #${turnoId} porque su estado actual es '${turno.estado}'.`,
         ownerInstanceName,
       );
       return;
@@ -1920,7 +1917,7 @@ const handleOwnerConfirmationCommand = async (
     // Notificamos al dueño
     await sendTextMessage(
       ownerPhone,
-      `✅ Turno #${turnoId} confirmado exitosamente. Se notificará al cliente.`,
+      `Turno #${turnoId} confirmado exitosamente. Se notificará al cliente.`,
       ownerInstanceName,
     );
 
@@ -2035,8 +2032,8 @@ const sendAppointmentInfoMessage = async ({ instanceName, phoneNumber }) => {
     lines.push('¡Te esperamos! 😊');
 
     await sendTextMessage(number, lines.join('\n'), normalizedInstanceName);
-    console.log(
-      `📋 Info turnos enviada directamente | to=${maskPhoneForLog(number)} | count=${rows.length}`,
+    logger.info(
+      `Info turnos enviada directamente | to=${maskPhoneForLog(number)} | count=${rows.length}`,
     );
     return true;
   } catch (error) {
@@ -2050,8 +2047,8 @@ const processIncomingMessage = async ({ instanceName, webhookData }) => {
   const ignoredPhones = await getIgnoredPhonesForInstance(instanceName);
 
   if (!messages.length) {
-    console.log(
-      `📭 Webhook sin mensajes | inst=${instanceName} | event=${webhookData?.event || webhookData?.type || "unknown"}`,
+    logger.debug(
+      `Webhook sin mensajes | inst=${instanceName} | event=${webhookData?.event || webhookData?.type || "unknown"}`,
     );
     return;
   }
@@ -2074,7 +2071,7 @@ const processIncomingMessage = async ({ instanceName, webhookData }) => {
         : Number(normalized.timestamp) * 1000; // viene en segundos (formato WA)
     if (nowMs - msgTimestampMs > MAX_MESSAGE_AGE_MS) {
       verboseLog(
-        `⏭️ Ignorado: mensaje viejo (${Math.round((nowMs - msgTimestampMs) / 1000)}s) | from=${maskPhoneForLog(normalized.phoneNumber)}`,
+        `Ignorado: mensaje viejo (${Math.round((nowMs - msgTimestampMs) / 1000)}s) | from=${maskPhoneForLog(normalized.phoneNumber)}`,
       );
       continue;
     }
@@ -2107,8 +2104,8 @@ const processIncomingMessage = async ({ instanceName, webhookData }) => {
     } else {
       const merged = mergeBufferedIncomingMessages(bucket);
       if (merged) {
-        console.log(
-          `🔀 Ráfaga agrupada | from=${maskPhoneForLog(phone)} | count=${bucket.length} | "${compactText(merged.text)}"`,
+        logger.info(
+          `Ráfaga agrupada | from=${maskPhoneForLog(phone)} | count=${bucket.length} | "${compactText(merged.text)}"`,
         );
         mergedInbound.push(merged);
       }
@@ -2120,8 +2117,8 @@ const processIncomingMessage = async ({ instanceName, webhookData }) => {
   const processedMessages = [...nonInboundMessages, ...mergedInbound];
 
   for (const normalized of processedMessages) {
-    console.log(
-      `📩 IN | from=${maskPhoneForLog(normalized.phoneNumber)} | type=${normalized.rawType || normalized.messageType} | "${compactText(normalized.text)}"`,
+    logger.info(
+      `IN | from=${maskPhoneForLog(normalized.phoneNumber)} | type=${normalized.rawType || normalized.messageType} | "${compactText(normalized.text)}"`,
     );
 
     appendConversationLog({
@@ -2142,8 +2139,8 @@ const processIncomingMessage = async ({ instanceName, webhookData }) => {
         normalized,
       );
       if (handled) {
-        console.log(
-          `✅ Poll confirmación procesada | from=${maskPhoneForLog(normalized.phoneNumber)}`,
+        logger.info(
+          `Poll confirmación procesada | from=${maskPhoneForLog(normalized.phoneNumber)}`,
         );
         continue;
       }
@@ -2163,8 +2160,8 @@ const processIncomingMessage = async ({ instanceName, webhookData }) => {
           messageId: normalized.messageId,
         })
       ) {
-        console.log(
-          `↩️ Ignorado bot-outbound | from=${maskPhoneForLog(normalized.phoneNumber)}`,
+        logger.debug(
+          `Ignorado bot-outbound | from=${maskPhoneForLog(normalized.phoneNumber)}`,
         );
         continue;
       }
@@ -2192,8 +2189,8 @@ const processIncomingMessage = async ({ instanceName, webhookData }) => {
         }
         pendingIncomingMessageBatches.delete(batchKey);
 
-        console.log(
-          `🛑 Muted manual | from=${maskPhoneForLog(normalized.phoneNumber)} | until=${new Date(muteUntil).toISOString()}`,
+        logger.info(
+          `Muted manual | from=${maskPhoneForLog(normalized.phoneNumber)} | until=${new Date(muteUntil).toISOString()}`,
         );
       }
       continue;
@@ -2211,14 +2208,14 @@ const processIncomingMessage = async ({ instanceName, webhookData }) => {
       )
     ) {
       verboseLog(
-        `⏭️ Ignorado soporte -> empresa | from=${maskPhoneForLog(normalized.phoneNumber)}`,
+        `Ignorado soporte -> empresa | from=${maskPhoneForLog(normalized.phoneNumber)}`,
       );
       continue;
     }
 
     if (ignoredPhones.has(normalized.phoneNumber)) {
       verboseLog(
-        `⏭️ Ignorado blacklist | from=${maskPhoneForLog(normalized.phoneNumber)}`,
+        `Ignorado blacklist | from=${maskPhoneForLog(normalized.phoneNumber)}`,
       );
       continue;
     }
@@ -2234,7 +2231,7 @@ const processIncomingMessage = async ({ instanceName, webhookData }) => {
       if (match) {
         const turnoId = parseInt(match[1], 10);
         verboseLog(
-          `📞 Comando de confirmación WA | owner=${normalized.phoneNumber} | turno=${turnoId}`,
+          `Comando de confirmación WA | owner=${normalized.phoneNumber} | turno=${turnoId}`,
         );
         await handleOwnerConfirmationCommand(
           instanceName,
@@ -2245,7 +2242,7 @@ const processIncomingMessage = async ({ instanceName, webhookData }) => {
       }
 
       verboseLog(
-        `⏭️ Ignorado interno | from=${maskPhoneForLog(normalized.phoneNumber)}`,
+        `Ignorado interno | from=${maskPhoneForLog(normalized.phoneNumber)}`,
       );
       continue;
     }
@@ -2300,19 +2297,13 @@ const processIncomingMessage = async ({ instanceName, webhookData }) => {
         )
           .flatMap((entry) => (Array.isArray(entry) ? entry : [entry]))
           .filter((entry) => entry !== undefined && entry !== null);
-        console.log("🧪 Support poll raw", {
-          from: normalized.phoneNumber,
-          rawType: normalized.rawType || normalized.messageType,
-          messageId: normalized.messageId,
-          flattenedSelectionValues,
-          sample: JSON.stringify(normalized.raw || {}).slice(0, 800),
-        });
+        logger.debug(`Support poll raw | from=${normalized.phoneNumber} | type=${normalized.rawType || normalized.messageType} | selected=${flattenedSelectionValues.filter(v => typeof v === 'string').join(', ') || 'none'}`);
         normalized.text = "poll_update";
       }
 
       if (!hasProcessableText(normalized.text)) {
         verboseLog(
-          `⏭️ Sin contenido procesable | from=${maskPhoneForLog(normalized.phoneNumber)} | type=${normalized.rawType || normalized.messageType}`,
+          `Sin contenido procesable | from=${maskPhoneForLog(normalized.phoneNumber)} | type=${normalized.rawType || normalized.messageType}`,
         );
         continue;
       }
@@ -2371,8 +2362,8 @@ const processIncomingMessage = async ({ instanceName, webhookData }) => {
     ) {
       whatsappConversationGate.delete(gateKey);
       activeGateState = null;
-      console.log(
-        `♻️ Flujo reiniciado por inactividad | from=${maskPhoneForLog(normalized.phoneNumber)}`,
+      logger.info(
+        `Flujo reiniciado por inactividad | from=${maskPhoneForLog(normalized.phoneNumber)}`,
       );
     }
 
@@ -2398,8 +2389,8 @@ const processIncomingMessage = async ({ instanceName, webhookData }) => {
           selectedSurveyText: "",
           preconfirmedYesAt: null,
         });
-        console.log(
-          `📊 Encuesta | to=${maskPhoneForLog(normalized.phoneNumber)} | provider=${pollResult?.provider || "unknown"}`,
+        logger.info(
+          `Encuesta | to=${maskPhoneForLog(normalized.phoneNumber)} | provider=${pollResult?.provider || "unknown"}`,
         );
       } catch (error) {
         console.error(
@@ -2416,7 +2407,7 @@ const processIncomingMessage = async ({ instanceName, webhookData }) => {
       activeGateState?.muteUntil > now
     ) {
       verboseLog(
-        `⏭️ Mute activo | from=${maskPhoneForLog(normalized.phoneNumber)} | until=${new Date(activeGateState.muteUntil).toISOString()}`,
+        `Mute activo | from=${maskPhoneForLog(normalized.phoneNumber)} | until=${new Date(activeGateState.muteUntil).toISOString()}`,
       );
       continue;
     }
@@ -2434,14 +2425,14 @@ const processIncomingMessage = async ({ instanceName, webhookData }) => {
         );
         if (selectedFromPollUpdates.length > 0) {
           normalized.text = selectedFromPollUpdates.join(", ");
-          console.log(
-            `📊 Poll empresa | from=${maskPhoneForLog(normalized.phoneNumber)} | selected=${normalized.text}`,
+          logger.info(
+            `Poll empresa | from=${maskPhoneForLog(normalized.phoneNumber)} | selected=${normalized.text}`,
           );
         } else {
           // Poll payload but no resolved selection (e.g. WhatsApp encrypted poll)
           // Log it for debugging but skip — we cannot determine the selection.
-          console.log(
-            `📊 Poll empresa sin selección legible | from=${maskPhoneForLog(normalized.phoneNumber)} | type=${normalized.rawType || normalized.messageType}`,
+          logger.debug(
+            `Poll empresa sin selección legible | from=${maskPhoneForLog(normalized.phoneNumber)} | type=${normalized.rawType || normalized.messageType}`,
           );
           continue;
         }
@@ -2469,8 +2460,8 @@ const processIncomingMessage = async ({ instanceName, webhookData }) => {
       // If poll payload matched a snapshot option but decision is still null, resolve it.
       if (!decision && selectedSurveyOption && isPollPayload) {
         decision = selectedSurveyOption.action === "none" ? "no" : "yes";
-        console.log(
-        `📊 Poll resuelto por snapshot | from=${maskPhoneForLog(normalized.phoneNumber)} | action=${selectedSurveyOption.action} | label=${selectedSurveyOption.label}`,
+        logger.info(
+        `Poll resuelto por snapshot | from=${maskPhoneForLog(normalized.phoneNumber)} | action=${selectedSurveyOption.action} | label=${selectedSurveyOption.label}`,
       );
       }
 
@@ -2544,7 +2535,7 @@ const processIncomingMessage = async ({ instanceName, webhookData }) => {
             updatedAt: now,
           });
           verboseLog(
-            `⏸️ Texto bufferizado (esperando poll) | from=${maskPhoneForLog(normalized.phoneNumber)} | acumulado="${compactText(mergedPendingText)}"`,
+            `Texto bufferizado (esperando poll) | from=${maskPhoneForLog(normalized.phoneNumber)} | acumulado="${compactText(mergedPendingText)}"`,
           );
         }
         continue;
@@ -2552,7 +2543,7 @@ const processIncomingMessage = async ({ instanceName, webhookData }) => {
 
       if (!decision && isPollPayload) {
         verboseLog(
-          `⏸️ Encuesta sin decision | from=${maskPhoneForLog(normalized.phoneNumber)} | type=${normalized.rawType || normalized.messageType}`,
+          `Encuesta sin decision | from=${maskPhoneForLog(normalized.phoneNumber)} | type=${normalized.rawType || normalized.messageType}`,
         );
       }
 
@@ -2584,7 +2575,7 @@ const processIncomingMessage = async ({ instanceName, webhookData }) => {
             updatedAt: now,
           });
           verboseLog(
-            `⏸️ Encuesta=SI sin texto | esperando detalle from=${maskPhoneForLog(normalized.phoneNumber)}`,
+            `Encuesta=SI sin texto | esperando detalle from=${maskPhoneForLog(normalized.phoneNumber)}`,
           );
           continue;
         }
@@ -2596,8 +2587,8 @@ const processIncomingMessage = async ({ instanceName, webhookData }) => {
           muteUntil: now + WHATSAPP_NO_REPLY_MUTE_MS,
           updatedAt: now,
         });
-        console.log(
-          `🙅 Encuesta=NO | from=${maskPhoneForLog(normalized.phoneNumber)} | muted=12h`,
+        logger.info(
+          `Encuesta=NO | from=${maskPhoneForLog(normalized.phoneNumber)} | muted=12h`,
         );
         continue;
       }
@@ -2636,7 +2627,7 @@ const processIncomingMessage = async ({ instanceName, webhookData }) => {
         }
       } else {
         verboseLog(
-          `⏸️ Esperando encuesta | from=${maskPhoneForLog(normalized.phoneNumber)} | type=${normalized.rawType || normalized.messageType}`,
+          `Esperando encuesta | from=${maskPhoneForLog(normalized.phoneNumber)} | type=${normalized.rawType || normalized.messageType}`,
         );
         continue;
       }
@@ -2672,8 +2663,8 @@ const processIncomingMessage = async ({ instanceName, webhookData }) => {
           selectedSurveyText: "",
           preconfirmedYesAt: null,
         });
-        console.log(
-          `📊 Encuesta | to=${maskPhoneForLog(normalized.phoneNumber)} | provider=${pollResult?.provider || "unknown"}`,
+        logger.info(
+          `Encuesta | to=${maskPhoneForLog(normalized.phoneNumber)} | provider=${pollResult?.provider || "unknown"}`,
         );
       } catch (error) {
         console.error("❌ No se pudo enviar encuesta inicial:", error.message);
@@ -2694,7 +2685,7 @@ const processIncomingMessage = async ({ instanceName, webhookData }) => {
 
     if (!hasProcessableText(normalized.text)) {
       verboseLog(
-        `⏭️ Sin contenido procesable | from=${maskPhoneForLog(normalized.phoneNumber)} | type=${normalized.rawType || normalized.messageType}`,
+        `Sin contenido procesable | from=${maskPhoneForLog(normalized.phoneNumber)} | type=${normalized.rawType || normalized.messageType}`,
       );
       continue;
     }

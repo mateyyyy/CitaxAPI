@@ -84,7 +84,7 @@ const processAudioMessage = async (instanceName, messageId) => {
   }
 
   const transcript = await transcribeAudio(base64);
-  console.log(`🎙️ Audio transcrito (${messageId}):`, transcript);
+  console.log(`Audio transcrito (${messageId}):`, transcript);
   return transcript;
 };
 

@@ -177,17 +177,17 @@ const buildWhatsappNotification = ({
   turnoId,
 }) => {
   const lines = [
-    `📋 *Nueva solicitud de turno* — ${companyName}`,
+    `*Nueva solicitud de turno* — ${companyName}`,
     "",
-    `👤 *Cliente:* ${clientName}`,
-    `📞 *Teléfono:* ${clientPhone}`,
-    `📧 *Email:* ${clientEmail || "No informado"}`,
-    `✂️ *Servicio:* ${serviceName}`,
-    `👨‍💼 *Profesional:* ${professionalName}`,
-    `📅 *Fecha:* ${formatAppointmentDate(date)}`,
-    `🕐 *Hora:* ${time}`,
+    `*Cliente:* ${clientName}`,
+    `*Teléfono:* ${clientPhone}`,
+    `*Email:* ${clientEmail || "No informado"}`,
+    `*Servicio:* ${serviceName}`,
+    `*Profesional:* ${professionalName}`,
+    `*Fecha:* ${formatAppointmentDate(date)}`,
+    `*Hora:* ${time}`,
     "",
-    `🔖 *Turno #${turnoId}*`,
+    `*Turno #${turnoId}*`,
     "",
     "⬇️ Respondé la encuesta de abajo para confirmar o rechazar este turno.",
   ];
@@ -519,7 +519,7 @@ router.post("/landing/:slug/appointments", async (req, res) => {
 
     if (company.whatsapp_number) {
       console.log(
-        `🔔 [NUEVO] Enviando poll confirmacion WA | instance=${SUPPORT_INSTANCE_NAME} | to=${company.whatsapp_number} | turnoId=${turnoResult.insertId}`,
+        `[NUEVO] Enviando poll confirmacion WA | instance=${SUPPORT_INSTANCE_NAME} | to=${company.whatsapp_number} | turnoId=${turnoResult.insertId}`,
       );
       try {
         await sendAppointmentConfirmationPoll({

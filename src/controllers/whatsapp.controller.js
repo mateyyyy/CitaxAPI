@@ -1,4 +1,5 @@
 const prisma = require("../config/prisma");
+const logger = require("../utils/logger");
 const {
   buildInstanceName,
   clearLatestQr,
@@ -254,8 +255,8 @@ const handleWebhook = async (req, res, next) => {
     );
 
     if (shouldLogEvent) {
-      console.log(
-        `📩 Webhook | event=${eventName} | instance=${instanceName} | hasData=${Boolean(payload?.data)}`,
+      logger.info(
+        `Webhook | event=${eventName} | instance=${instanceName} | hasData=${Boolean(payload?.data)}`,
       );
     }
 
@@ -263,15 +264,15 @@ const handleWebhook = async (req, res, next) => {
 
     if (payload?.event === "qrcode.updated") {
       storeLatestQr(instanceName, payload);
-      console.log(
-        `🔳 WhatsApp QR | instance=${instanceName} | hasQr=${getLatestQr(instanceName)?.source !== "none"}`,
+      logger.info(
+        `WhatsApp QR | instance=${instanceName} | hasQr=${getLatestQr(instanceName)?.source !== "none"}`,
       );
     }
 
     if (payload?.event === "connection.update") {
       const state = payload?.data?.state || payload?.state || "unknown";
-      console.log(
-        `🔌 WhatsApp conexión | instance=${instanceName} | state=${state}`,
+      logger.info(
+        `WhatsApp conexion | instance=${instanceName} | state=${state}`,
       );
       if (state === "open") {
         clearLatestQr(instanceName);
