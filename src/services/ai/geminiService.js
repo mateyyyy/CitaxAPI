@@ -1922,7 +1922,7 @@ const invokeGeminiGraph = async ({ tools, messages }) => {
 
     return { result, provider };
   } catch (error) {
-    console.error(`❌ Error ejecutando LLM Gemini (${provider.label}):`, {
+    console.error(`Error ejecutando LLM Gemini (${provider.label}):`, {
       message: error.message,
       status: error.response?.status || error.status,
       data: error.response?.data || error.errorDetails || null,

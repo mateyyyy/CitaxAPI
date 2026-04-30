@@ -1,5 +1,7 @@
 const express = require("express");
 const cors = require("cors");
+const pinoHttp = require("pino-http");
+const logger = require("./utils/logger");
 const authRoutes = require("./routes/auth.routes");
 const appointmentsRoutes = require("./routes/appointments.routes");
 const availabilityRoutes = require("./routes/availability.routes");
@@ -12,32 +14,18 @@ const superadminRoutes = require("./routes/superadmin.routes");
 const publicRoutes = require("./routes/public.routes");
 
 const app = express();
-const fs = require("fs");
-const path = require("path");
-const REQUEST_LOG_ENABLED =
-  (process.env.REQUEST_LOG_ENABLED || "false") === "true";
 
-// Simple request logger for diagnosis
-app.use((req, res, next) => {
-  if (!REQUEST_LOG_ENABLED) {
-    return next();
-  }
-
-  const shouldSkipNotificationsPolling =
-    req.url.startsWith("/api/notifications") &&
-    (req.method === "GET" || req.method === "OPTIONS");
-
-  if (shouldSkipNotificationsPolling) {
-    return next();
-  }
-
-  const log = `📡 [${new Date().toLocaleTimeString()}] ${req.method} ${req.url} | ${req.get("origin") || "direct"}\n`;
-  console.log(log.trim());
-  try {
-    fs.appendFileSync(path.join(__dirname, "../debug_out.txt"), log);
-  } catch (e) {}
-  next();
-});
+// Request logger (pino-http) — solo adjunta req.log, sin logging HTTP automático
+app.use(
+  pinoHttp({
+    logger,
+    autoLogging: false,
+    serializers: {
+      req: () => undefined,
+      res: () => undefined,
+    },
+  }),
+);
 
 const allowedOrigins = new Set([
   "https://www.citax.com.ar",
@@ -63,6 +51,7 @@ const corsOptions = {
       return callback(null, true);
     }
 
+    logger.warn(`CORS: origin rechazado | origin=${origin || "(none)"}`);
     return callback(new Error("Origin no permitido por CORS"));
   },
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -74,10 +63,27 @@ const corsOptions = {
   credentials: true,
 };
 
-app.use(cors(corsOptions));
-app.use(express.json());
+// ── Webhook endpoints: server-to-server (Evolution API), sin restriccion CORS ─
+// MUST be registered BEFORE global cors() middleware.
+app.post(
+  "/api/webhook",
+  cors({ origin: true }),
+  express.json({ limit: "5mb" }),
+  require("./controllers/whatsapp.controller").handleWebhook,
+);
 
-// Main check and Health
+// Whatsapp webhook by instanceName also needs bypass
+app.post(
+  "/api/whatsapp/webhook/:instanceName",
+  cors({ origin: true }),
+  express.json({ limit: "5mb" }),
+  require("./controllers/whatsapp.controller").handleWebhook,
+);
+
+app.use(cors(corsOptions));
+app.use(express.json({ limit: "5mb" }));
+
+// Health
 app.get("/", (req, res) =>
   res.json({ message: "Citax API is running", version: "1.0.0" }),
 );
@@ -100,14 +106,10 @@ app.use("/api/notifications", notificationsRoutes);
 app.use("/api/whatsapp", whatsappRoutes);
 app.use("/api/superadmin", superadminRoutes);
 app.use("/api/public", publicRoutes);
-app.post(
-  "/api/webhook",
-  require("./controllers/whatsapp.controller").handleWebhook,
-);
 
 // Error handler
 app.use((err, req, res, next) => {
-  console.error(err.stack);
+  logger.error({ err, url: req.url, method: req.method }, "Unhandled error");
   res.status(500).json({ error: "Internal Server Error" });
 });
 
