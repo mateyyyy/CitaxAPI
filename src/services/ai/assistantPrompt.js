@@ -78,14 +78,26 @@ const buildAssistantPrompt = (companyContext, customerName = "") => {
         .join("\n")
     : "No hay servicios configurados aun.";
 
-  const pendingList = customerPendingAppointments.length
-    ? customerPendingAppointments
+  const futureTurnos = customerPendingAppointments.filter((a) => !a.alreadyPassed);
+  const todayPassedTurnos = customerPendingAppointments.filter((a) => a.alreadyPassed);
+
+  const pendingList = futureTurnos.length
+    ? futureTurnos
         .map(
           (a) =>
             `- ${a.date} a las ${a.time} con ${a.professional} (${a.service})`,
         )
         .join("\n")
-    : "Sin turnos confirmados.";
+    : "Sin turnos futuros confirmados.";
+
+  const todayPassedList = todayPassedTurnos.length
+    ? todayPassedTurnos
+        .map(
+          (a) =>
+            `- ${a.date} a las ${a.time} con ${a.professional} (${a.service}) [ya paso hoy]`,
+        )
+        .join("\n")
+    : "";
 
   return `Sos el asistente virtual de WhatsApp de ${companyName}. Respondes siempre en espanol rioplatense, de manera calida, clara y profesional. Nunca respondas en ingles ni mezcles frases en ingles. Si una frase te sale en ingles, reescribila completamente en espanol.
 
@@ -215,6 +227,10 @@ ${svcList}
 
 TURNOS CONFIRMADOS DEL CLIENTE:
 ${pendingList}
+${todayPassedList ? `\nTURNOS DE HOY YA REALIZADOS (pasaron hace menos de 24h):\n${todayPassedList}` : ""}
+
+36. Si el cliente tiene un turno futuro confirmado para el mismo dia que esta preguntando, NO ofrezcas horarios nuevos sin antes avisarle que ya tiene un turno ese dia. Preguntale si quiere modificar ese turno existente en lugar de crear uno nuevo.
+37. Si el cliente ya tuvo un turno hoy (figura en TURNOS DE HOY YA REALIZADOS) y ahora pide otro turno para hoy, informale que ya tuvo un turno hoy y preguntale si igualmente quiere reservar uno nuevo para mas tarde.
 
 ${
   singleProviderMode

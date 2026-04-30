@@ -201,20 +201,37 @@ const getCompanyContextByInstanceName = async (
 
     if (client) {
       const now = new Date();
-      const pending = await prisma.tURNO.findMany({
-        where: {
-          id_cliente: client.id_cliente,
-          estado: "confirmado",
-          fecha_hora: { gte: now },
-        },
-        include: {
-          SERVICIO: true,
-          PRESTADOR: { include: { USUARIO: true } },
-        },
-        orderBy: { fecha_hora: "asc" },
-      });
+      const todayStr = getCurrentDateInTimeZone();
+      const todayStart = new Date(`${todayStr}T00:00:00Z`);
 
-      customerPendingAppointments = pending.map((t) => ({
+      const [pending, todayPast] = await Promise.all([
+        prisma.tURNO.findMany({
+          where: {
+            id_cliente: client.id_cliente,
+            estado: "confirmado",
+            fecha_hora: { gte: now },
+          },
+          include: {
+            SERVICIO: true,
+            PRESTADOR: { include: { USUARIO: true } },
+          },
+          orderBy: { fecha_hora: "asc" },
+        }),
+        prisma.tURNO.findMany({
+          where: {
+            id_cliente: client.id_cliente,
+            estado: "confirmado",
+            fecha_hora: { gte: todayStart, lt: now },
+          },
+          include: {
+            SERVICIO: true,
+            PRESTADOR: { include: { USUARIO: true } },
+          },
+          orderBy: { fecha_hora: "asc" },
+        }),
+      ]);
+
+      const mapTurno = (t, alreadyPassed) => ({
         id: t.id_turno,
         date: t.fecha_hora.toISOString().slice(0, 10),
         time: formatTime(
@@ -222,7 +239,13 @@ const getCompanyContextByInstanceName = async (
         ),
         service: t.SERVICIO.nombre,
         professional: `${t.PRESTADOR.USUARIO.nombre} ${t.PRESTADOR.USUARIO.apellido}`,
-      }));
+        alreadyPassed,
+      });
+
+      customerPendingAppointments = [
+        ...pending.map((t) => mapTurno(t, false)),
+        ...todayPast.map((t) => mapTurno(t, true)),
+      ];
     }
   }
 
