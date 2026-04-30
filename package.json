@@ -5,8 +5,8 @@
   "main": "index.js",
   "scripts": {
     "test": "node test/all.test.js",
-    "dev": "node src/server.js",
-    "start": "node src/server.js",
+    "dev": "chcp 65001 >NUL && node src/server.js",
+    "start": "chcp 65001 >NUL && node src/server.js",
     "postinstall": "prisma generate"
   },
   "repository": {

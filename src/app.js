@@ -51,6 +51,7 @@ const corsOptions = {
       return callback(null, true);
     }
 
+    logger.warn(`CORS: origin rechazado | origin=${origin || "(none)"}`);
     return callback(new Error("Origin no permitido por CORS"));
   },
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -62,10 +63,27 @@ const corsOptions = {
   credentials: true,
 };
 
+// ── Webhook endpoints: server-to-server (Evolution API), sin restriccion CORS ─
+// MUST be registered BEFORE global cors() middleware.
+app.post(
+  "/api/webhook",
+  cors({ origin: true }),
+  express.json({ limit: "5mb" }),
+  require("./controllers/whatsapp.controller").handleWebhook,
+);
+
+// Whatsapp webhook by instanceName also needs bypass
+app.post(
+  "/api/whatsapp/webhook/:instanceName",
+  cors({ origin: true }),
+  express.json({ limit: "5mb" }),
+  require("./controllers/whatsapp.controller").handleWebhook,
+);
+
 app.use(cors(corsOptions));
 app.use(express.json({ limit: "5mb" }));
 
-// Main check and Health
+// Health
 app.get("/", (req, res) =>
   res.json({ message: "Citax API is running", version: "1.0.0" }),
 );
@@ -88,10 +106,6 @@ app.use("/api/notifications", notificationsRoutes);
 app.use("/api/whatsapp", whatsappRoutes);
 app.use("/api/superadmin", superadminRoutes);
 app.use("/api/public", publicRoutes);
-app.post(
-  "/api/webhook",
-  require("./controllers/whatsapp.controller").handleWebhook,
-);
 
 // Error handler
 app.use((err, req, res, next) => {
