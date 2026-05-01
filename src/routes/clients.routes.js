@@ -14,7 +14,7 @@ router.get('/', async (req, res) => {
          c.nombre_wa,
          c.whatsapp_id,
          COUNT(t.id_turno) AS total_turnos,
-         MAX(t.fecha_hora)  AS ultimo_turno
+         MAX(CASE WHEN t.fecha_hora <= NOW() THEN t.fecha_hora END) AS ultimo_turno
        FROM CLIENTE c
        LEFT JOIN TURNO t ON t.id_cliente = c.id_cliente
        WHERE c.id_empresa = ?
@@ -32,7 +32,7 @@ router.get('/', async (req, res) => {
       let diasDesde = null;
       if (r.ultimo_turno) {
         const diff = now - new Date(r.ultimo_turno);
-        diasDesde = Math.floor(diff / (1000 * 60 * 60 * 24));
+        diasDesde = Math.max(0, Math.floor(diff / (1000 * 60 * 60 * 24)));
       }
 
       return {
