@@ -13,6 +13,7 @@ const whatsappRoutes = require("./routes/whatsapp.routes");
 const superadminRoutes = require("./routes/superadmin.routes");
 const publicRoutes = require("./routes/public.routes");
 const clientsRoutes = require("./routes/clients.routes");
+const remindersRoutes = require("./routes/reminders.routes");
 
 const app = express();
 
@@ -108,6 +109,7 @@ app.use("/api/whatsapp", whatsappRoutes);
 app.use("/api/superadmin", superadminRoutes);
 app.use("/api/public", publicRoutes);
 app.use("/api/clients", clientsRoutes);
+app.use("/api/reminders", remindersRoutes);
 
 // Error handler
 app.use((err, req, res, next) => {
