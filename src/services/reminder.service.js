@@ -93,13 +93,6 @@ async function processSingleReminder(row) {
 
     if (Math.abs(diffMs) > WINDOW_SECONDS * 1000) continue;
 
-    const [[sentRow]] = await pool.execute(
-      "SELECT 1 FROM TURNO_RECORDATORIO WHERE id_turno = ? AND offset_minutos = ? LIMIT 1",
-      [row.id_turno, offset],
-    );
-
-    if (sentRow) continue;
-
     const template =
       config.recordatorio_mensaje?.trim() ||
       "Hola {{cliente_nombre}}, te recordamos tu turno para {{fecha}} a las {{hora}} en {{empresa_nombre}}.";
@@ -113,10 +106,12 @@ async function processSingleReminder(row) {
 
     await sendTextMessage(row.whatsapp_id, message, row.instance_name);
 
-    await pool.execute(
-      "INSERT INTO TURNO_RECORDATORIO (id_turno, offset_minutos, enviado_at) VALUES (?, ?, NOW())",
+    const [{ affectedRows }] = await pool.execute(
+      "INSERT IGNORE INTO TURNO_RECORDATORIO (id_turno, offset_minutos, enviado_at) VALUES (?, ?, NOW())",
       [row.id_turno, offset],
     );
+
+    if (affectedRows === 0) continue;
 
     logger.info(
       { id_turno: row.id_turno, offset, empresa: row.id_empresa },

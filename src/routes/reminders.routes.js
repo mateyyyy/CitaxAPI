@@ -173,6 +173,17 @@ router.post("/send-today", async (req, res) => {
 
         await sendTextMessage(t.whatsapp_id, message, t.instance_name);
 
+        const [[sentRow]] = await pool.execute(
+          "SELECT 1 FROM TURNO_RECORDATORIO WHERE id_turno = ? AND offset_minutos = ? LIMIT 1",
+          [t.id_turno, 0],
+        );
+
+        if (sentRow) {
+          results.push({ id_turno: t.id_turno, success: false, error: "Ya se envio un recordatorio para este turno" });
+          failed++;
+          continue;
+        }
+
         await pool.execute(
           "INSERT INTO TURNO_RECORDATORIO (id_turno, offset_minutos, enviado_at) VALUES (?, ?, NOW())",
           [t.id_turno, 0],
