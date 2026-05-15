@@ -9,8 +9,9 @@ const {
   isSingleProviderModeEnabledForConfig,
   normalizeOwnPhrasesConfig,
 } = require("../singleProviderMode.service");
+const { getRuntimeTimeZone } = require("../../utils/runtimeTimezone");
 
-const DEFAULT_TIMEZONE = "America/Argentina/Buenos_Aires";
+const DEFAULT_TIMEZONE = getRuntimeTimeZone();
 
 const getCurrentDateInTimeZone = (timezone = DEFAULT_TIMEZONE) => {
   return new Intl.DateTimeFormat("en-CA", {
@@ -40,6 +41,10 @@ const getCurrentTimeInTimeZone = (timezone = DEFAULT_TIMEZONE) => {
 };
 
 const getNowInTimezone = (timezone = DEFAULT_TIMEZONE) => {
+  if (!timezone || timezone === DEFAULT_TIMEZONE) {
+    return new Date();
+  }
+
   const parts = {};
   new Intl.DateTimeFormat("en-CA", {
     timeZone: timezone,

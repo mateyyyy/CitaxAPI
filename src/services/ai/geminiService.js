@@ -37,6 +37,7 @@ const {
   formatNaturalDate,
   summarizeAvailableSlotsForAssistant,
 } = require("./slotPresentation");
+const { getRuntimeTimeZone } = require("../../utils/runtimeTimezone");
 
 const AI_ENABLED = (process.env.WHATSAPP_AI_ENABLED || "true") === "true";
 const GOOGLE_API_KEY = String(process.env.GOOGLE_API_KEY || "").trim();
@@ -174,7 +175,7 @@ const isAssistantConfigured = () =>
   AI_ENABLED && Boolean(getGeminiConfig().apiKey);
 
 const buildRealtimeTemporalContext = (
-  timezone = "America/Argentina/Buenos_Aires",
+  timezone = getRuntimeTimeZone(),
 ) => {
   const now = new Date();
   const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
@@ -1571,7 +1572,7 @@ const createSupportTools = ({
   customerPhone,
   supportState,
   referenceDate,
-  timezone = "America/Argentina/Buenos_Aires",
+  timezone = getRuntimeTimeZone(),
 }) => {
   return [
     tool(
@@ -2356,9 +2357,7 @@ const runSupportAssistant = async ({ incomingMessage }) => {
       ).catch(() => null)
     : null;
 
-  const realtimeContext = buildRealtimeTemporalContext(
-    "America/Argentina/Buenos_Aires",
-  );
+  const realtimeContext = buildRealtimeTemporalContext(getRuntimeTimeZone());
   const tools = createSupportTools({
     customerPhone,
     supportState,

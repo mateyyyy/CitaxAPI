@@ -5,8 +5,9 @@ const authMiddleware = require('../middlewares/auth.middleware');
 const { hasClienteEmailColumn } = require('../services/clientSchema.service');
 const { hasTurnoOrigenColumn, inferAppointmentOrigin, parseTurnoOrigin, buildTurnoOrigin } = require('../services/turnoSchema.service');
 const { mapTurnoToNotification } = require('./notifications.routes');
+const { getRuntimeTimeZone } = require('../utils/runtimeTimezone');
 
-const APP_TIMEZONE = "America/Argentina/Buenos_Aires";
+const APP_TIMEZONE = getRuntimeTimeZone();
 
 const formatDateLocal = (value) => {
     return new Intl.DateTimeFormat("en-CA", {
