@@ -10,6 +10,16 @@ const {
   normalizeOwnPhrasesConfig,
 } = require("../singleProviderMode.service");
 const { getRuntimeTimeZone } = require("../../utils/runtimeTimezone");
+const {
+  DEFAULT_APPOINTMENT_DURATION_MINUTES,
+  OCCUPYING_APPOINTMENT_STATUSES,
+  addMinutes,
+  isOccupyingAppointmentStatus,
+  rangesOverlap,
+} = require("../../utils/appointmentOccupancy");
+const {
+  findOverlappingAppointmentWithPrisma,
+} = require("../appointmentConflict.service");
 
 const DEFAULT_TIMEZONE = getRuntimeTimeZone();
 
@@ -147,7 +157,6 @@ const toWeekdayNumber = (dateStr) => {
 };
 const combineDateTime = (dateStr, timeStr) =>
   new Date(`${dateStr}T${timeStr}:00`);
-const overlaps = (s1, e1, s2, e2) => s1 < e2 && s2 < e1;
 
 // â”€â”€â”€ Get company context by instance name â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const getCompanyContextByInstanceName = async (
@@ -389,7 +398,7 @@ const listAvailableSlots = async ({
   const existingTurnos = await prisma.tURNO.findMany({
     where: {
       id_prestador: { in: prestadores.map((p) => p.id_prestador) },
-      estado: "confirmado",
+      estado: { in: OCCUPYING_APPOINTMENT_STATUSES },
       fecha_hora: {
         gte: new Date(`${normalizedStart}T00:00:00`),
         lte: new Date(`${normalizedEnd}T23:59:59`),
@@ -399,7 +408,6 @@ const listAvailableSlots = async ({
   });
 
   const slots = [];
-  const defaultDuration = 30;
   const prestadoresConAgenda = prestadores.map((prestador) => {
     const availability = resolveEffectiveAvailability({
       ownConfig: prestador.horarios_disponibilidad,
@@ -442,7 +450,9 @@ const listAvailableSlots = async ({
             (ps) => Number(ps.SERVICIO.id_servicio) === Number(serviceId),
           )?.SERVICIO
         : prestador.SERVICIOS[0]?.SERVICIO;
-      const duration = selectedService?.duracion_minutos || defaultDuration;
+      const duration =
+        selectedService?.duracion_minutos ||
+        DEFAULT_APPOINTMENT_DURATION_MINUTES;
       const daySchedules = prestador.availabilityMap[weekday];
       if (!daySchedules || !daySchedules.length) continue;
 
@@ -458,10 +468,12 @@ const listAvailableSlots = async ({
           const isBusy = existingTurnos.some((t) => {
             if (t.id_prestador !== prestador.id_prestador) return false;
             const tStart = new Date(t.fecha_hora);
-            const tEnd = new Date(
-              tStart.getTime() + (t.SERVICIO?.duracion_minutos || 30) * 60000,
+            const tEnd = addMinutes(
+              tStart,
+              t.SERVICIO?.duracion_minutos ||
+                DEFAULT_APPOINTMENT_DURATION_MINUTES,
             );
-            return overlaps(slotStart, slotEnd, tStart, tEnd);
+            return rangesOverlap(slotStart, slotEnd, tStart, tEnd);
           });
 
           if (!isBusy && isSlotStillBookable({ slotStart, slotEnd })) {
@@ -613,7 +625,8 @@ const createAppointmentFromAssistant = async ({
   });
   if (!servicio) throw new Error("Servicio no encontrado");
 
-  const duration = servicio.duracion_minutos || 30;
+  const duration =
+    servicio.duracion_minutos || DEFAULT_APPOINTMENT_DURATION_MINUTES;
   const fechaHora = new Date(`${normalizedDate}T${normalizedTime}:00`);
 
   // Validar anticipación mínima (MIN_BOOKING_LEAD_MINUTES, default 20 min)
@@ -625,16 +638,13 @@ const createAppointmentFromAssistant = async ({
     );
   }
 
-  const endTime = new Date(fechaHora.getTime() + duration * 60000);
-  const existing = await prisma.tURNO.findFirst({
-    where: {
-      id_prestador: professionalId,
-      estado: "confirmado",
-      fecha_hora: {
-        gte: fechaHora,
-        lt: endTime,
-      },
-    },
+  const endTime = addMinutes(fechaHora, duration);
+  const existing = await findOverlappingAppointmentWithPrisma({
+    prismaClient: prisma,
+    companyId,
+    professionalId,
+    start: fechaHora,
+    end: endTime,
   });
 
   if (existing)
@@ -660,7 +670,7 @@ const createAppointmentFromAssistant = async ({
   await prisma.tURNO.updateMany({
     where: {
       id_prestador: professionalId,
-      estado: "pendiente",
+      estado: { in: ["pendiente", "pendiente_confirmacion"] },
       fecha_hora: {
         gte: fechaHora,
         lt: endTime,
@@ -915,6 +925,7 @@ module.exports = {
   createAppointmentFromAssistant,
   getCompanyContextByCompanyId,
   getCompanyContextByInstanceName,
+  isOccupyingAppointmentStatus,
   isSlotStillBookable,
   listAvailableSlots,
   listAppointmentsByDay,

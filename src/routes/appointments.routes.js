@@ -6,6 +6,8 @@ const { hasClienteEmailColumn } = require('../services/clientSchema.service');
 const { hasTurnoOrigenColumn, inferAppointmentOrigin, parseTurnoOrigin, buildTurnoOrigin } = require('../services/turnoSchema.service');
 const { mapTurnoToNotification } = require('./notifications.routes');
 const { getRuntimeTimeZone } = require('../utils/runtimeTimezone');
+const { addMinutes, DEFAULT_APPOINTMENT_DURATION_MINUTES } = require('../utils/appointmentOccupancy');
+const { findOverlappingAppointmentWithSql } = require('../services/appointmentConflict.service');
 
 const APP_TIMEZONE = getRuntimeTimeZone();
 
@@ -210,6 +212,35 @@ router.post('/', async (req, res) => {
         }
 
         const fullDate = `${fecha} ${hora_inicio}:00`;
+        const [serviceRows] = await connection.execute(
+            'SELECT id_servicio, duracion_minutos FROM SERVICIO WHERE id_servicio = ? LIMIT 1',
+            [servicio_id]
+        );
+
+        if (!serviceRows.length) {
+            await connection.rollback();
+            return res.status(404).json({ error: 'Servicio no encontrado.' });
+        }
+
+        const requestedStart = new Date(fullDate);
+        const requestedEnd = addMinutes(
+            requestedStart,
+            serviceRows[0].duracion_minutos || DEFAULT_APPOINTMENT_DURATION_MINUTES
+        );
+
+        const conflict = await findOverlappingAppointmentWithSql({
+            executor: connection,
+            companyId: empresaId,
+            professionalId: prestador_id,
+            start: requestedStart,
+            end: requestedEnd,
+        });
+
+        if (conflict) {
+            await connection.rollback();
+            return res.status(409).json({ error: 'Ese horario ya no esta disponible.' });
+        }
+
         const includeOrigin = await hasTurnoOrigenColumn(connection);
         const turnoQuery = includeOrigin
             ? 'INSERT INTO TURNO (id_cliente, id_prestador, id_servicio, fecha_hora, estado, origen) VALUES (?, ?, ?, ?, ?, ?)'

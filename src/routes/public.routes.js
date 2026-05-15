@@ -6,6 +6,13 @@ const {
   sendTextMessage,
   sendAppointmentConfirmationPoll,
 } = require("../services/evolution.service");
+const {
+  addMinutes,
+  DEFAULT_APPOINTMENT_DURATION_MINUTES,
+} = require("../utils/appointmentOccupancy");
+const {
+  findOverlappingAppointmentWithSql,
+} = require("../services/appointmentConflict.service");
 const { hasClienteEmailColumn } = require("../services/clientSchema.service");
 const { hasTurnoOrigenColumn } = require("../services/turnoSchema.service");
 const { resolveCompanyLandingTemplate } = require("../utils/companyLanding");
@@ -416,7 +423,7 @@ router.post("/landing/:slug/appointments", async (req, res) => {
     }
 
     const [serviceRows] = await pool.execute(
-      `SELECT id_servicio, nombre
+      `SELECT id_servicio, nombre, duracion_minutos
        FROM SERVICIO
        WHERE id_empresa = ?
          AND id_servicio = ?
@@ -479,6 +486,27 @@ router.post("/landing/:slug/appointments", async (req, res) => {
 
     await connection.beginTransaction();
 
+    const appointmentDateTime = buildAppointmentDateTime(date, time);
+    const requestedStart = new Date(appointmentDateTime);
+    const requestedEnd = addMinutes(
+      requestedStart,
+      serviceRows[0].duracion_minutos || DEFAULT_APPOINTMENT_DURATION_MINUTES,
+    );
+    const conflict = await findOverlappingAppointmentWithSql({
+      executor: connection,
+      companyId: company.id_empresa,
+      professionalId,
+      start: requestedStart,
+      end: requestedEnd,
+    });
+
+    if (conflict) {
+      await connection.rollback();
+      return res.status(409).json({
+        error: "Ese horario ya no esta disponible",
+      });
+    }
+
     const clientId = await upsertClient({
       connection,
       companyId: company.id_empresa,
@@ -487,7 +515,6 @@ router.post("/landing/:slug/appointments", async (req, res) => {
       clientEmail,
     });
 
-    const appointmentDateTime = buildAppointmentDateTime(date, time);
     const includeOrigin = await hasTurnoOrigenColumn(connection);
     const turnoQuery = includeOrigin
       ? `INSERT INTO TURNO (id_cliente, id_prestador, id_servicio, fecha_hora, estado, origen)
