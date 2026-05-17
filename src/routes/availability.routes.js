@@ -275,6 +275,7 @@ router.get('/', async (req, res) => {
             startDate: fecha,
             endDate: fecha,
             referenceDate: fecha,
+            includeOccupied: req.query.include_occupied === 'true',
             limit: 200,
         });
 
@@ -284,7 +285,10 @@ router.get('/', async (req, res) => {
                     Number(slot.professionalId) === Number(scope.prestadorId) &&
                     slot.date === fecha
                 )
-                .map((slot) => slot.time),
+                .map((slot) => ({
+                    time: slot.time,
+                    is_busy: !!slot.isBusy
+                })),
         });
     } catch (err) {
         console.error(err);

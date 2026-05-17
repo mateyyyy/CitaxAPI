@@ -350,6 +350,7 @@ const listAvailableSlots = async ({
   startDate,
   endDate,
   referenceDate,
+  includeOccupied = false,
   limit = 30,
 }) => {
   const normalizedStart =
@@ -499,7 +500,7 @@ const listAvailableSlots = async ({
             return rangesOverlap(slotStart, slotEnd, tStart, tEnd);
           });
 
-          if (!isBusy && isSlotStillBookable({ slotStart, slotEnd })) {
+          if ((!isBusy || includeOccupied) && isSlotStillBookable({ slotStart, slotEnd })) {
             slots.push({
               professionalId: prestador.id_prestador,
               professionalName: `${prestador.USUARIO.nombre} ${prestador.USUARIO.apellido}`,
@@ -507,6 +508,7 @@ const listAvailableSlots = async ({
               time: formatTimeInTz(slotStart),
               endTime: formatTimeInTz(slotEnd),
               duration,
+              isBusy,
               scheduleSource: prestador.availability.source,
             });
           }

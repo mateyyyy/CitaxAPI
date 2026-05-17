@@ -1,4 +1,5 @@
 const express = require("express");
+const path = require("path");
 const cors = require("cors");
 const pinoHttp = require("pino-http");
 const logger = require("./utils/logger");
@@ -85,7 +86,27 @@ app.post(
 app.use(cors(corsOptions));
 app.use(express.json({ limit: "5mb" }));
 
-// Health
+// CSP: allow iframe embedding from authorized domains only
+app.use((req, res, next) => {
+  const allowedIframeDomains = [
+    "'self'",
+    "http://localhost:3000",
+    "http://localhost:3001",
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "https://osadia-form-calculator.vercel.app",
+    ...(process.env.EMBED_ANCESTORS
+      ? process.env.EMBED_ANCESTORS.split(",").map((s) => s.trim())
+      : []),
+  ].join(" ");
+  res.setHeader(
+    "Content-Security-Policy",
+    `frame-ancestors ${allowedIframeDomains};`,
+  );
+  next();
+});
+
+// Health (must be before static files to avoid express.static serving index.html)
 app.get("/", (req, res) =>
   res.json({ message: "Citax API is running", version: "1.0.0" }),
 );
@@ -96,6 +117,14 @@ app.get("/health", (req, res) =>
     model: process.env.GEMINI_MODEL || "not set",
   }),
 );
+
+// Serve built frontend assets for embed/widget routes (SPA)
+const frontendDist = path.resolve(
+  __dirname, '..', '..', process.env.FRONTEND_DIST || 'Citax', 'dist'
+);
+app.use(express.static(frontendDist));
+
+const embedRoutes = require("./routes/embed.routes");
 
 // Routes
 app.use("/api/auth", authRoutes);
@@ -110,6 +139,14 @@ app.use("/api/superadmin", superadminRoutes);
 app.use("/api/public", publicRoutes);
 app.use("/api/clients", clientsRoutes);
 app.use("/api/reminders", remindersRoutes);
+app.use("/embed/reserva", embedRoutes);
+
+// SPA fallback: serve index.html for client-side routes (embed, etc.)
+app.use((req, res, next) => {
+  if (req.method !== "GET") return next();
+  if (req.url.startsWith("/api")) return next();
+  res.sendFile(path.join(frontendDist, "index.html"));
+});
 
 // Error handler
 app.use((err, req, res, next) => {
